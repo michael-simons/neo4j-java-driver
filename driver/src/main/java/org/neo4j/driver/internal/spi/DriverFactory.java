@@ -16,29 +16,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.neo4j.driver.internal.util;
+package org.neo4j.driver.internal.spi;
 
-import io.netty.util.concurrent.EventExecutorGroup;
+import java.net.URI;
+import java.util.Locale;
+import java.util.Objects;
 
-import org.neo4j.driver.internal.DefaultDriverFactory;
-import org.neo4j.driver.internal.retry.FixedRetryLogic;
-import org.neo4j.driver.internal.retry.RetryLogic;
+import org.neo4j.driver.internal.cluster.RoutingSettings;
 import org.neo4j.driver.internal.retry.RetrySettings;
-import org.neo4j.driver.v1.Logging;
+import org.neo4j.driver.v1.AuthToken;
+import org.neo4j.driver.v1.Config;
+import org.neo4j.driver.v1.Driver;
 
-public class DriverFactoryWithFixedRetryLogic extends DefaultDriverFactory
+/**
+ * Provided to support additional implementations of {@link org.neo4j.driver.v1.Driver Driver} which don't need to be distributed
+ * within the main Java driver artifact.
+ */
+public interface DriverFactory
 {
-    private final int retryCount;
-
-    public DriverFactoryWithFixedRetryLogic( int retryCount )
-    {
-        this.retryCount = retryCount;
-    }
-
-    @Override
-    protected RetryLogic createRetryLogic( RetrySettings settings, EventExecutorGroup eventExecutorGroup,
-            Logging logging )
-    {
-        return new FixedRetryLogic( retryCount );
-    }
+    Driver newInstance( URI uri, AuthToken authToken, RoutingSettings routingSettings, RetrySettings retrySettings, Config config );
 }

@@ -31,7 +31,7 @@ import java.util.concurrent.CompletionStage;
 
 import org.neo4j.driver.internal.BoltServerAddress;
 import org.neo4j.driver.internal.ConnectionSettings;
-import org.neo4j.driver.internal.DriverFactory;
+import org.neo4j.driver.internal.DefaultDriverFactory;
 import org.neo4j.driver.internal.async.ChannelConnector;
 import org.neo4j.driver.internal.async.pool.ConnectionPoolImpl;
 import org.neo4j.driver.internal.async.pool.PoolSettings;
@@ -275,7 +275,7 @@ class ConnectionHandlingIT
                 parameters( "nodesToCreate", nodesToCreate ) );
     }
 
-    private static class DriverFactoryWithConnectionPool extends DriverFactory
+    private static class DriverFactoryWithConnectionPool extends DefaultDriverFactory
     {
         MemorizingConnectionPool connectionPool;
 

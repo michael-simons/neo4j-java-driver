@@ -29,7 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.neo4j.driver.internal.ConnectionSettings;
-import org.neo4j.driver.internal.DriverFactory;
+import org.neo4j.driver.internal.DefaultDriverFactory;
 import org.neo4j.driver.internal.async.ChannelConnector;
 import org.neo4j.driver.internal.async.ChannelConnectorImpl;
 import org.neo4j.driver.internal.async.ChannelPipelineBuilder;
@@ -41,7 +41,7 @@ import org.neo4j.driver.internal.security.SecurityPlan;
 import org.neo4j.driver.v1.Config;
 import org.neo4j.driver.v1.Logging;
 
-public class MessageRecordingDriverFactory extends DriverFactory
+public class MessageRecordingDriverFactory extends DefaultDriverFactory
 {
     private final Map<Channel,List<Message>> messagesByChannel = new ConcurrentHashMap<>();
 

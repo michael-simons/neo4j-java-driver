@@ -63,7 +63,7 @@ import static org.neo4j.driver.internal.util.Futures.failedFuture;
 import static org.neo4j.driver.v1.AccessMode.READ;
 import static org.neo4j.driver.v1.Config.defaultConfig;
 
-class DriverFactoryTest
+class DefaultDriverFactoryTest
 {
     private static Stream<String> testUris()
     {
@@ -75,7 +75,7 @@ class DriverFactoryTest
     void connectionPoolClosedWhenDriverCreationFails( String uri )
     {
         ConnectionPool connectionPool = connectionPoolMock();
-        DriverFactory factory = new ThrowingDriverFactory( connectionPool );
+        DefaultDriverFactory factory = new ThrowingDriverFactory( connectionPool );
 
         assertThrows( UnsupportedOperationException.class, () -> createDriver( uri, factory ) );
         verify( connectionPool ).close();
@@ -89,7 +89,7 @@ class DriverFactoryTest
         RuntimeException poolCloseError = new RuntimeException( "Pool close error" );
         when( connectionPool.close() ).thenReturn( failedFuture( poolCloseError ) );
 
-        DriverFactory factory = new ThrowingDriverFactory( connectionPool );
+        DefaultDriverFactory factory = new ThrowingDriverFactory( connectionPool );
 
         UnsupportedOperationException e = assertThrows( UnsupportedOperationException.class, () -> createDriver( uri, factory ) );
         assertArrayEquals( new Throwable[]{poolCloseError}, e.getSuppressed() );
@@ -159,7 +159,7 @@ class DriverFactoryTest
         Config config = mock( Config.class );
         when( config.isMetricsEnabled() ).thenReturn( false );
         // When
-        MetricsProvider provider = DriverFactory.createDriverMetrics( config, Clock.SYSTEM );
+        MetricsProvider provider = DefaultDriverFactory.createDriverMetrics( config, Clock.SYSTEM );
         // Then
         assertThat( provider, is( METRICS_DISABLED_PROVIDER ) );
     }
@@ -171,17 +171,17 @@ class DriverFactoryTest
         Config config = mock( Config.class );
         when( config.isMetricsEnabled() ).thenReturn( true );
         // When
-        MetricsProvider provider = DriverFactory.createDriverMetrics( config, Clock.SYSTEM );
+        MetricsProvider provider = DefaultDriverFactory.createDriverMetrics( config, Clock.SYSTEM );
         // Then
         assertThat( provider instanceof InternalMetricsProvider, is( true ) );
     }
 
-    private Driver createDriver( String uri, DriverFactory driverFactory )
+    private Driver createDriver( String uri, DefaultDriverFactory driverFactory )
     {
         return createDriver( uri, driverFactory, defaultConfig() );
     }
 
-    private Driver createDriver( String uri, DriverFactory driverFactory, Config config )
+    private Driver createDriver( String uri, DefaultDriverFactory driverFactory, Config config )
     {
         AuthToken auth = AuthTokens.none();
         RoutingSettings routingSettings = new RoutingSettings( 42, 42, null );
@@ -197,7 +197,7 @@ class DriverFactoryTest
         return pool;
     }
 
-    private static class ThrowingDriverFactory extends DriverFactory
+    private static class ThrowingDriverFactory extends DefaultDriverFactory
     {
         final ConnectionPool connectionPool;
 
@@ -227,7 +227,7 @@ class DriverFactoryTest
         }
     }
 
-    private static class SessionFactoryCapturingDriverFactory extends DriverFactory
+    private static class SessionFactoryCapturingDriverFactory extends DefaultDriverFactory
     {
         SessionFactory capturedSessionFactory;
 
@@ -263,7 +263,7 @@ class DriverFactoryTest
         }
     }
 
-    private static class DriverFactoryWithSessions extends DriverFactory
+    private static class DriverFactoryWithSessions extends DefaultDriverFactory
     {
         final SessionFactory sessionFactory;
 

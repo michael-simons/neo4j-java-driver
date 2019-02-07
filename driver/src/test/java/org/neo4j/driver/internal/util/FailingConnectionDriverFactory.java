@@ -25,7 +25,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.neo4j.driver.internal.BoltServerAddress;
-import org.neo4j.driver.internal.DriverFactory;
+import org.neo4j.driver.internal.DefaultDriverFactory;
 import org.neo4j.driver.internal.messaging.BoltProtocol;
 import org.neo4j.driver.internal.messaging.Message;
 import org.neo4j.driver.internal.metrics.MetricsProvider;
@@ -36,7 +36,7 @@ import org.neo4j.driver.internal.spi.ResponseHandler;
 import org.neo4j.driver.v1.AuthToken;
 import org.neo4j.driver.v1.Config;
 
-public class FailingConnectionDriverFactory extends DriverFactory
+public class FailingConnectionDriverFactory extends DefaultDriverFactory
 {
     private final AtomicReference<Throwable> nextRunFailure = new AtomicReference<>();
 

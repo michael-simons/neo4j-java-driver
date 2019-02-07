@@ -19,13 +19,21 @@
 package org.neo4j.driver.v1;
 
 import java.net.URI;
+import java.util.Optional;
+import java.util.ServiceLoader;
+import java.util.function.Predicate;
+import java.util.stream.StreamSupport;
 
-import org.neo4j.driver.internal.DriverFactory;
 import org.neo4j.driver.internal.cluster.RoutingSettings;
 import org.neo4j.driver.internal.retry.RetrySettings;
+import org.neo4j.driver.internal.spi.DriverFactory;
+import org.neo4j.driver.internal.spi.DriverFactoryProvider;
+import org.neo4j.driver.v1.exceptions.ClientException;
 import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 
-import static org.neo4j.driver.internal.DriverFactory.BOLT_ROUTING_URI_SCHEME;
+import static java.util.Comparator.comparing;
+import static org.neo4j.driver.internal.DefaultDriverFactory.BOLT_ROUTING_URI_SCHEME;
+import static org.neo4j.driver.internal.spi.DriverFactoryProvider.extractScheme;
 
 /**
  * Creates {@link Driver drivers}, optionally letting you {@link #driver(URI, Config)} to configure them.
@@ -35,6 +43,9 @@ import static org.neo4j.driver.internal.DriverFactory.BOLT_ROUTING_URI_SCHEME;
 public class GraphDatabase
 {
     private static final String LOGGER_NAME = GraphDatabase.class.getSimpleName();
+
+    private static ThreadLocal<ServiceLoader<DriverFactoryProvider>> DRIVER_FACTORY_LOADER =
+            ThreadLocal.withInitial( () -> ServiceLoader.load( DriverFactoryProvider.class ) );
 
     /**
      * Return a driver for a Neo4j instance with the default configuration settings
@@ -133,7 +144,9 @@ public class GraphDatabase
         RoutingSettings routingSettings = config.routingSettings();
         RetrySettings retrySettings = config.retrySettings();
 
-        return new DriverFactory().newInstance( uri, authToken, routingSettings, retrySettings, config );
+        return loadMatchingDriverFactory( uri )
+                .orElseThrow( () -> new ClientException( "Unsupported scheme: " + extractScheme( uri ) ) )
+                .newInstance( uri, authToken, routingSettings, retrySettings, config );
     }
 
     /**
@@ -165,6 +178,16 @@ public class GraphDatabase
         }
 
         throw new ServiceUnavailableException( "Failed to discover an available server" );
+    }
+
+    private static Optional<DriverFactory> loadMatchingDriverFactory( URI uri )
+    {
+        Predicate<DriverFactoryProvider> supportsScheme = driverFactory -> driverFactory.isSupportedScheme( uri );
+        return StreamSupport.stream( DRIVER_FACTORY_LOADER.get().spliterator(), false )
+                .sorted( comparing( DriverFactoryProvider::getOrder ) )
+                .filter( supportsScheme )
+                .findFirst()
+                .map( DriverFactoryProvider::get );
     }
 
     private static void assertRoutingUris( Iterable<URI> uris )

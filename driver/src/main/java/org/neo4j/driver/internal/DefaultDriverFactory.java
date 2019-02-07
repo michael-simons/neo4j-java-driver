@@ -47,6 +47,8 @@ import org.neo4j.driver.internal.retry.RetrySettings;
 import org.neo4j.driver.internal.security.SecurityPlan;
 import org.neo4j.driver.internal.spi.ConnectionPool;
 import org.neo4j.driver.internal.spi.ConnectionProvider;
+import org.neo4j.driver.internal.spi.DriverFactory;
+import org.neo4j.driver.internal.spi.DriverFactoryProvider;
 import org.neo4j.driver.internal.util.Clock;
 import org.neo4j.driver.internal.util.Futures;
 import org.neo4j.driver.v1.AuthToken;
@@ -62,8 +64,9 @@ import org.neo4j.driver.v1.net.ServerAddressResolver;
 import static java.lang.String.format;
 import static org.neo4j.driver.internal.metrics.MetricsProvider.METRICS_DISABLED_PROVIDER;
 import static org.neo4j.driver.internal.security.SecurityPlan.insecure;
+import static org.neo4j.driver.internal.spi.DriverFactoryProvider.extractScheme;
 
-public class DriverFactory
+public class DefaultDriverFactory implements DriverFactory
 {
     public static final String BOLT_URI_SCHEME = "bolt";
     public static final String BOLT_ROUTING_URI_SCHEME = "bolt+routing";
@@ -128,7 +131,7 @@ public class DriverFactory
     {
         try
         {
-            String scheme = uri.getScheme().toLowerCase();
+            String scheme = extractScheme( uri );
             switch ( scheme )
             {
             case BOLT_URI_SCHEME:

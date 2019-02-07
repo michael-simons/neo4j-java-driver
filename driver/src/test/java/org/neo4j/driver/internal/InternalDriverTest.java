@@ -126,7 +126,7 @@ class InternalDriverTest
             config = Config.build().withDriverMetrics().build();
         }
 
-        MetricsProvider metricsProvider = DriverFactory.createDriverMetrics( config, Clock.SYSTEM );
+        MetricsProvider metricsProvider = DefaultDriverFactory.createDriverMetrics( config, Clock.SYSTEM );
         return new InternalDriver( SecurityPlan.insecure(), sessionFactory, metricsProvider, DEV_NULL_LOGGING );
     }
 }

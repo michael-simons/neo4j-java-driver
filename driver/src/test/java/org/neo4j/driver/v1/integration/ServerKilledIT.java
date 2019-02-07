@@ -27,9 +27,10 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
-import org.neo4j.driver.internal.DriverFactory;
+import org.neo4j.driver.internal.DefaultDriverFactory;
 import org.neo4j.driver.internal.cluster.RoutingSettings;
 import org.neo4j.driver.internal.retry.RetrySettings;
+import org.neo4j.driver.internal.spi.DriverFactory;
 import org.neo4j.driver.internal.util.Clock;
 import org.neo4j.driver.internal.util.DriverFactoryWithClock;
 import org.neo4j.driver.internal.util.FakeClock;

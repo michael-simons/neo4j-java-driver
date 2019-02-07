@@ -18,9 +18,9 @@
  */
 package org.neo4j.driver.internal.util;
 
-import org.neo4j.driver.internal.DriverFactory;
+import org.neo4j.driver.internal.DefaultDriverFactory;
 
-public class DriverFactoryWithClock extends DriverFactory
+public class DriverFactoryWithClock extends DefaultDriverFactory
 {
     private final Clock clock;
 

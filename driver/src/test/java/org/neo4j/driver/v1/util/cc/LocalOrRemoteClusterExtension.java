@@ -31,7 +31,7 @@ import org.neo4j.driver.v1.AuthTokens;
 import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.util.TestUtil;
 
-import static org.neo4j.driver.internal.DriverFactory.BOLT_ROUTING_URI_SCHEME;
+import static org.neo4j.driver.internal.DefaultDriverFactory.BOLT_ROUTING_URI_SCHEME;
 import static org.neo4j.driver.v1.Config.defaultConfig;
 
 public class LocalOrRemoteClusterExtension implements BeforeAllCallback, AfterEachCallback, AfterAllCallback
