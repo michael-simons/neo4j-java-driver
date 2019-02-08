@@ -43,6 +43,9 @@ import org.neo4j.driver.v1.exceptions.ClientException;
 
 import static java.util.Collections.emptyMap;
 import static java.util.concurrent.CompletableFuture.completedFuture;
+import static org.neo4j.driver.internal.TransactionUtils.ensureNoOpenTxBeforeRunningQuery;
+import static org.neo4j.driver.internal.TransactionUtils.ensureNoOpenTxBeforeStartingTx;
+import static org.neo4j.driver.internal.TransactionUtils.existingTransactionOrNull;
 import static org.neo4j.driver.internal.util.Futures.completedWithNull;
 import static org.neo4j.driver.internal.util.Futures.failedFuture;
 
@@ -264,7 +267,7 @@ public class NetworkSession extends AbstractStatementRunner implements Session
 
     private CompletionStage<Void> resetAsync()
     {
-        return existingTransactionOrNull()
+        return existingTransactionOrNull(transactionStage)
                 .thenAccept( tx ->
                 {
                     if ( tx != null )
@@ -429,7 +432,7 @@ public class NetworkSession extends AbstractStatementRunner implements Session
     {
         ensureSessionIsOpen();
 
-        CompletionStage<InternalStatementResultCursor> newResultCursorStage = ensureNoOpenTxBeforeRunningQuery()
+        CompletionStage<InternalStatementResultCursor> newResultCursorStage = ensureNoOpenTxBeforeRunningQuery(transactionStage)
                 .thenCompose( ignore -> acquireConnection( mode ) )
                 .thenCompose( connection ->
                         connection.protocol().runInAutoCommitTransaction( connection, statement, bookmarksHolder, config, waitForRunResponse ) );
@@ -450,7 +453,7 @@ public class NetworkSession extends AbstractStatementRunner implements Session
         ensureSessionIsOpen();
 
         // create a chain that acquires connection and starts a transaction
-        CompletionStage<ExplicitTransaction> newTransactionStage = ensureNoOpenTxBeforeStartingTx()
+        CompletionStage<ExplicitTransaction> newTransactionStage = ensureNoOpenTxBeforeStartingTx(transactionStage)
                 .thenCompose( ignore -> acquireConnection( mode ) )
                 .thenCompose( connection ->
                 {
@@ -523,7 +526,7 @@ public class NetworkSession extends AbstractStatementRunner implements Session
 
     private CompletionStage<Throwable> closeTransactionAndReleaseConnection()
     {
-        return existingTransactionOrNull().thenCompose( tx ->
+        return existingTransactionOrNull(transactionStage).thenCompose( tx ->
         {
             if ( tx != null )
             {
@@ -570,36 +573,6 @@ public class NetworkSession extends AbstractStatementRunner implements Session
         {
             connection.terminateAndRelease( reason );
         }
-    }
-
-    private CompletionStage<Void> ensureNoOpenTxBeforeRunningQuery()
-    {
-        return ensureNoOpenTx( "Statements cannot be run directly on a session with an open transaction; " +
-                               "either run from within the transaction or use a different session." );
-    }
-
-    private CompletionStage<Void> ensureNoOpenTxBeforeStartingTx()
-    {
-        return ensureNoOpenTx( "You cannot begin a transaction on a session with an open transaction; " +
-                               "either run from within the transaction or use a different session." );
-    }
-
-    private CompletionStage<Void> ensureNoOpenTx( String errorMessage )
-    {
-        return existingTransactionOrNull().thenAccept( tx ->
-        {
-            if ( tx != null )
-            {
-                throw new ClientException( errorMessage );
-            }
-        } );
-    }
-
-    private CompletionStage<ExplicitTransaction> existingTransactionOrNull()
-    {
-        return transactionStage
-                .exceptionally( error -> null ) // handle previous connection acquisition and tx begin failures
-                .thenApply( tx -> tx != null && tx.isOpen() ? tx : null );
     }
 
     private void ensureSessionIsOpen()

@@ -19,35 +19,21 @@
 package org.neo4j.driver.internal;
 
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.neo4j.driver.internal.metrics.MetricsProvider;
 import org.neo4j.driver.internal.security.SecurityPlan;
-import org.neo4j.driver.internal.util.Futures;
-import org.neo4j.driver.v1.AccessMode;
 import org.neo4j.driver.v1.Driver;
-import org.neo4j.driver.v1.Logger;
 import org.neo4j.driver.v1.Logging;
-import org.neo4j.driver.v1.Metrics;
-import org.neo4j.driver.v1.Session;
 
-import static org.neo4j.driver.internal.util.Futures.completedWithNull;
-
-public class InternalDriver implements Driver
+public class InternalDriver extends AbstractDriver implements Driver
 {
     private final SecurityPlan securityPlan;
-    private final SessionFactory sessionFactory;
-    private final Logger log;
-
-    private AtomicBoolean closed = new AtomicBoolean( false );
-    private final MetricsProvider metricsProvider;
 
     InternalDriver( SecurityPlan securityPlan, SessionFactory sessionFactory, MetricsProvider metricsProvider, Logging logging )
     {
+        super( sessionFactory, metricsProvider, logging );
+
         this.securityPlan = securityPlan;
-        this.sessionFactory = sessionFactory;
-        this.metricsProvider = metricsProvider;
-        this.log = logging.getLog( Driver.class.getSimpleName() );
     }
 
     @Override
@@ -57,72 +43,7 @@ public class InternalDriver implements Driver
         return securityPlan.requiresEncryption();
     }
 
-    @Override
-    public Session session()
-    {
-        return session( AccessMode.WRITE );
-    }
-
-    @Override
-    public Session session( AccessMode mode )
-    {
-        return newSession( mode, Bookmarks.empty() );
-    }
-
-    @Override
-    public Session session( String bookmark )
-    {
-        return session( AccessMode.WRITE, bookmark );
-    }
-
-    @Override
-    public Session session( AccessMode mode, String bookmark )
-    {
-        return newSession( mode, Bookmarks.from( bookmark ) );
-    }
-
-    @Override
-    public Session session( Iterable<String> bookmarks )
-    {
-        return session( AccessMode.WRITE, bookmarks );
-    }
-
-    @Override
-    public Session session( AccessMode mode, Iterable<String> bookmarks )
-    {
-        return newSession( mode, Bookmarks.from( bookmarks ) );
-    }
-
-    private Session newSession( AccessMode mode, Bookmarks bookmarks )
-    {
-        assertOpen();
-        Session session = sessionFactory.newInstance( mode, bookmarks );
-        if ( closed.get() )
-        {
-            // session does not immediately acquire connection, it is fine to just throw
-            throw driverCloseException();
-        }
-        return session;
-    }
-
-    @Override
-    public void close()
-    {
-        Futures.blockingGet( closeAsync() );
-    }
-
-    @Override
-    public CompletionStage<Void> closeAsync()
-    {
-        if ( closed.compareAndSet( false, true ) )
-        {
-            log.info( "Closing driver instance %s", hashCode() );
-            return sessionFactory.close();
-        }
-        return completedWithNull();
-    }
-
-    public CompletionStage<Void> verifyConnectivity()
+    CompletionStage<Void> verifyConnectivity()
     {
         return sessionFactory.verifyConnectivity();
     }
@@ -137,23 +58,5 @@ public class InternalDriver implements Driver
     public SessionFactory getSessionFactory()
     {
         return sessionFactory;
-    }
-
-    private void assertOpen()
-    {
-        if ( closed.get() )
-        {
-            throw driverCloseException();
-        }
-    }
-
-    public Metrics metrics()
-    {
-        return metricsProvider.metrics();
-    }
-
-    private static RuntimeException driverCloseException()
-    {
-        return new IllegalStateException( "This driver instance has already been closed" );
     }
 }

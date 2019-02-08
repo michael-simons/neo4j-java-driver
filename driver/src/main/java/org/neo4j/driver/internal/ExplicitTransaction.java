@@ -26,7 +26,6 @@ import org.neo4j.driver.internal.async.ResultCursorsHolder;
 import org.neo4j.driver.internal.messaging.BoltProtocol;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.util.Futures;
-import org.neo4j.driver.v1.Session;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.StatementResultCursor;
@@ -37,38 +36,12 @@ import org.neo4j.driver.v1.exceptions.ClientException;
 import static org.neo4j.driver.internal.util.Futures.completedWithNull;
 import static org.neo4j.driver.internal.util.Futures.failedFuture;
 
-public class ExplicitTransaction extends AbstractStatementRunner implements Transaction
+public class ExplicitTransaction extends AbstractTransaction implements Transaction
 {
-    private enum State
-    {
-        /** The transaction is running with no explicit success or failure marked */
-        ACTIVE,
-
-        /** Running, user marked for success, meaning it'll value committed */
-        MARKED_SUCCESS,
-
-        /** User marked as failed, meaning it'll be rolled back. */
-        MARKED_FAILED,
-
-        /**
-         * This transaction has been terminated either because of explicit {@link Session#reset()} or because of a
-         * fatal connection error.
-         */
-        TERMINATED,
-
-        /** This transaction has successfully committed */
-        COMMITTED,
-
-        /** This transaction has been rolled back */
-        ROLLED_BACK
-    }
-
     private final Connection connection;
     private final BoltProtocol protocol;
     private final BookmarksHolder bookmarksHolder;
     private final ResultCursorsHolder resultCursors;
-
-    private volatile State state = State.ACTIVE;
 
     public ExplicitTransaction( Connection connection, BookmarksHolder bookmarksHolder )
     {
@@ -94,81 +67,47 @@ public class ExplicitTransaction extends AbstractStatementRunner implements Tran
     }
 
     @Override
-    public void success()
-    {
-        if ( state == State.ACTIVE )
-        {
-            state = State.MARKED_SUCCESS;
-        }
-    }
-
-    @Override
-    public void failure()
-    {
-        if ( state == State.ACTIVE || state == State.MARKED_SUCCESS )
-        {
-            state = State.MARKED_FAILED;
-        }
-    }
-
-    @Override
     public void close()
     {
         Futures.blockingGet( closeAsync(),
                 () -> terminateConnectionOnThreadInterrupt( "Thread interrupted while closing the transaction" ) );
     }
 
-    CompletionStage<Void> closeAsync()
-    {
-        if ( state == State.MARKED_SUCCESS )
-        {
-            return commitAsync();
-        }
-        else if ( state != State.COMMITTED && state != State.ROLLED_BACK )
-        {
-            return rollbackAsync();
-        }
-        else
-        {
-            return completedWithNull();
-        }
-    }
-
     @Override
     public CompletionStage<Void> commitAsync()
     {
-        if ( state == State.COMMITTED )
+        if ( state == TransactionState.COMMITTED )
         {
             return completedWithNull();
         }
-        else if ( state == State.ROLLED_BACK )
+        else if ( state == TransactionState.ROLLED_BACK )
         {
             return failedFuture( new ClientException( "Can't commit, transaction has been rolled back" ) );
         }
         else
         {
             return resultCursors.retrieveNotConsumedError()
-                    .thenCompose( error -> doCommitAsync().handle( handleCommitOrRollback( error ) ) )
-                    .whenComplete( ( ignore, error ) -> transactionClosed( State.COMMITTED ) );
+                    .thenCompose( error -> doCommitAsync().handle( handleCommitOrRollback( error ) ) ).whenComplete(
+                            ( ignore, error ) -> transactionClosed( TransactionState.COMMITTED ) );
         }
     }
 
     @Override
     public CompletionStage<Void> rollbackAsync()
     {
-        if ( state == State.COMMITTED )
+        if ( state == TransactionState.COMMITTED )
         {
             return failedFuture( new ClientException( "Can't rollback, transaction has been committed" ) );
         }
-        else if ( state == State.ROLLED_BACK )
+        else if ( state == TransactionState.ROLLED_BACK )
         {
             return completedWithNull();
         }
         else
         {
             return resultCursors.retrieveNotConsumedError()
-                    .thenCompose( error -> doRollbackAsync().handle( handleCommitOrRollback( error ) ) )
-                    .whenComplete( ( ignore, error ) -> transactionClosed( State.ROLLED_BACK ) );
+                    .thenCompose( error -> doRollbackAsync().handle( handleCommitOrRollback( error ) ) ).whenComplete(
+                            ( ignore, error ) -> transactionClosed( TransactionState.ROLLED_BACK ) );
         }
     }
 
@@ -195,42 +134,10 @@ public class ExplicitTransaction extends AbstractStatementRunner implements Tran
         return cursorStage;
     }
 
-    private void ensureCanRunQueries()
-    {
-        if ( state == State.COMMITTED )
-        {
-            throw new ClientException( "Cannot run more statements in this transaction, it has been committed" );
-        }
-        else if ( state == State.ROLLED_BACK )
-        {
-            throw new ClientException( "Cannot run more statements in this transaction, it has been rolled back" );
-        }
-        else if ( state == State.MARKED_FAILED )
-        {
-            throw new ClientException( "Cannot run more statements in this transaction, it has been marked for failure. " +
-                                       "Please either rollback or close this transaction" );
-        }
-        else if ( state == State.TERMINATED )
-        {
-            throw new ClientException( "Cannot run more statements in this transaction, " +
-                                       "it has either experienced an fatal error or was explicitly terminated" );
-        }
-    }
-
-    @Override
-    public boolean isOpen()
-    {
-        return state != State.COMMITTED && state != State.ROLLED_BACK;
-    }
-
-    public void markTerminated()
-    {
-        state = State.TERMINATED;
-    }
 
     private CompletionStage<Void> doCommitAsync()
     {
-        if ( state == State.TERMINATED )
+        if ( state == TransactionState.TERMINATED )
         {
             return failedFuture( new ClientException( "Transaction can't be committed. " +
                                                       "It has been rolled back either because of an error or explicit termination" ) );
@@ -240,7 +147,7 @@ public class ExplicitTransaction extends AbstractStatementRunner implements Tran
 
     private CompletionStage<Void> doRollbackAsync()
     {
-        if ( state == State.TERMINATED )
+        if ( state == TransactionState.TERMINATED )
         {
             return completedWithNull();
         }
@@ -260,7 +167,7 @@ public class ExplicitTransaction extends AbstractStatementRunner implements Tran
         };
     }
 
-    private void transactionClosed( State newState )
+    private void transactionClosed( TransactionState newState )
     {
         state = newState;
         connection.release(); // release in background
