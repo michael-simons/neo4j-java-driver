@@ -37,6 +37,7 @@ import org.neo4j.driver.internal.spi.ConnectionProvider;
 import org.neo4j.driver.internal.spi.ResponseHandler;
 import org.neo4j.driver.internal.util.ServerVersion;
 import org.neo4j.driver.internal.util.Supplier;
+import org.neo4j.driver.internal.util.TxWork;
 import org.neo4j.driver.v1.AccessMode;
 import org.neo4j.driver.v1.Session;
 import org.neo4j.driver.v1.Transaction;
@@ -761,7 +762,7 @@ class NetworkSessionTest
         verifyCommitTx( connection, times( failures ) );
     }
 
-    private static <T> T executeTransaction( Session session, AccessMode mode, TransactionWork<T> work )
+    static <T> T executeTransaction( Session session, AccessMode mode, TransactionWork<T> work )
     {
         if ( mode == READ )
         {
@@ -799,7 +800,7 @@ class NetworkSessionTest
         return new NetworkSession( connectionProvider, mode, retryLogic, DEV_NULL_LOGGING, new DefaultBookmarksHolder( bookmarks ) );
     }
 
-    private static void verifyInvocationCount( TransactionWork<?> workSpy, int expectedInvocationCount )
+    static void verifyInvocationCount( TransactionWork<?> workSpy, int expectedInvocationCount )
     {
         verify( workSpy, times( expectedInvocationCount ) ).execute( any( Transaction.class ) );
     }
@@ -878,45 +879,5 @@ class NetworkSessionTest
             pullAllHandler.onSuccess( emptyMap() );
             return null;
         } ).when( connection ).writeAndFlush( eq( new RunMessage( query ) ), any(), eq( PullAllMessage.PULL_ALL ), any() );
-    }
-
-    private static class TxWork implements TransactionWork<Integer>
-    {
-        final int result;
-        final int timesToThrow;
-        final Supplier<RuntimeException> errorSupplier;
-
-        int invoked;
-
-        @SuppressWarnings( "unchecked" )
-        TxWork( int result )
-        {
-            this( result, 0, (Supplier) null );
-        }
-
-        TxWork( int result, int timesToThrow, final RuntimeException error )
-        {
-            this.result = result;
-            this.timesToThrow = timesToThrow;
-            this.errorSupplier = () -> error;
-        }
-
-        TxWork( int result, int timesToThrow, Supplier<RuntimeException> errorSupplier )
-        {
-            this.result = result;
-            this.timesToThrow = timesToThrow;
-            this.errorSupplier = errorSupplier;
-        }
-
-        @Override
-        public Integer execute( Transaction tx )
-        {
-            if ( timesToThrow > 0 && invoked++ < timesToThrow )
-            {
-                throw errorSupplier.get();
-            }
-            tx.success();
-            return result;
-        }
     }
 }

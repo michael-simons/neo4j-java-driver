@@ -29,6 +29,7 @@ import org.neo4j.driver.internal.retry.RetryLogic;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.spi.ConnectionProvider;
 import org.neo4j.driver.internal.util.Futures;
+import org.neo4j.driver.internal.util.Supplier;
 import org.neo4j.driver.v1.AccessMode;
 import org.neo4j.driver.v1.Logger;
 import org.neo4j.driver.v1.Logging;
@@ -42,12 +43,11 @@ import org.neo4j.driver.v1.TransactionWork;
 import org.neo4j.driver.v1.exceptions.ClientException;
 
 import static java.util.Collections.emptyMap;
-import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.neo4j.driver.internal.TransactionUtils.ensureNoOpenTxBeforeRunningQuery;
 import static org.neo4j.driver.internal.TransactionUtils.ensureNoOpenTxBeforeStartingTx;
+import static org.neo4j.driver.internal.TransactionUtils.executeWork;
 import static org.neo4j.driver.internal.TransactionUtils.existingTransactionOrNull;
 import static org.neo4j.driver.internal.util.Futures.completedWithNull;
-import static org.neo4j.driver.internal.util.Futures.failedFuture;
 
 public class NetworkSession extends AbstractStatementRunner implements Session
 {
@@ -155,17 +155,7 @@ public class NetworkSession extends AbstractStatementRunner implements Session
                 }
                 // no result cursor exists so no error exists
                 return completedWithNull();
-            } ).thenCombine( closeTransactionAndReleaseConnection(), ( cursorError, txCloseError ) ->
-            {
-                // now we have cursor error, active transaction has been closed and connection has been released
-                // back to the pool; try to propagate cursor and transaction close errors, if any
-                CompletionException combinedError = Futures.combineErrors( cursorError, txCloseError );
-                if ( combinedError != null )
-                {
-                    throw combinedError;
-                }
-                return null;
-            } );
+            } ).thenCombine( closeTransactionAndReleaseConnection(), TransactionUtils::combineCursorAndTxCloseError );
         }
         return completedWithNull();
     }
@@ -301,25 +291,9 @@ public class NetworkSession extends AbstractStatementRunner implements Session
         // caller thread will also be the one who sleeps between retries;
         // it is unsafe to execute retries in the event loop threads because this can cause a deadlock
         // event loop thread will bock and wait for itself to read some data
-        return retryLogic.retry( () ->
-        {
-            try ( Transaction tx = beginTransaction( mode, config ) )
-            {
-                try
-                {
-                    T result = work.execute( tx );
-                    tx.success();
-                    return result;
-                }
-                catch ( Throwable t )
-                {
-                    // mark transaction for failure if the given unit of work threw exception
-                    // this will override any success marks that were made by the unit of work
-                    tx.failure();
-                    throw t;
-                }
-            }
-        } );
+
+        Supplier<Transaction> transactionSupplier = () -> beginTransaction( mode, config );
+        return retryLogic.retry( () -> executeWork( transactionSupplier, work ) );
     }
 
     private <T> CompletionStage<T> transactionAsync( AccessMode mode, TransactionWork<CompletionStage<T>> work, TransactionConfig config )
@@ -344,88 +318,6 @@ public class NetworkSession extends AbstractStatementRunner implements Session
 
             return resultFuture;
         } );
-    }
-
-    private <T> void executeWork( CompletableFuture<T> resultFuture, ExplicitTransaction tx,
-            TransactionWork<CompletionStage<T>> work )
-    {
-        CompletionStage<T> workFuture = safeExecuteWork( tx, work );
-        workFuture.whenComplete( ( result, completionError ) ->
-        {
-            Throwable error = Futures.completionExceptionCause( completionError );
-            if ( error != null )
-            {
-                rollbackTxAfterFailedTransactionWork( tx, resultFuture, error );
-            }
-            else
-            {
-                closeTxAfterSucceededTransactionWork( tx, resultFuture, result );
-            }
-        } );
-    }
-
-    private <T> CompletionStage<T> safeExecuteWork( ExplicitTransaction tx, TransactionWork<CompletionStage<T>> work )
-    {
-        // given work might fail in both async and sync way
-        // async failure will result in a failed future being returned
-        // sync failure will result in an exception being thrown
-        try
-        {
-            CompletionStage<T> result = work.execute( tx );
-
-            // protect from given transaction function returning null
-            return result == null ? completedWithNull() : result;
-        }
-        catch ( Throwable workError )
-        {
-            // work threw an exception, wrap it in a future and proceed
-            return failedFuture( workError );
-        }
-    }
-
-    private <T> void rollbackTxAfterFailedTransactionWork( ExplicitTransaction tx, CompletableFuture<T> resultFuture,
-            Throwable error )
-    {
-        if ( tx.isOpen() )
-        {
-            tx.rollbackAsync().whenComplete( ( ignore, rollbackError ) ->
-            {
-                if ( rollbackError != null )
-                {
-                    error.addSuppressed( rollbackError );
-                }
-                resultFuture.completeExceptionally( error );
-            } );
-        }
-        else
-        {
-            resultFuture.completeExceptionally( error );
-        }
-    }
-
-    private <T> void closeTxAfterSucceededTransactionWork( ExplicitTransaction tx, CompletableFuture<T> resultFuture,
-            T result )
-    {
-        if ( tx.isOpen() )
-        {
-            tx.success();
-            tx.closeAsync().whenComplete( ( ignore, completionError ) ->
-            {
-                Throwable commitError = Futures.completionExceptionCause( completionError );
-                if ( commitError != null )
-                {
-                    resultFuture.completeExceptionally( commitError );
-                }
-                else
-                {
-                    resultFuture.complete( result );
-                }
-            } );
-        }
-        else
-        {
-            resultFuture.complete( result );
-        }
     }
 
     private CompletionStage<InternalStatementResultCursor> run( Statement statement, TransactionConfig config, boolean waitForRunResponse )
@@ -461,22 +353,11 @@ public class NetworkSession extends AbstractStatementRunner implements Session
                     return tx.beginAsync( bookmarksHolder.getBookmarks(), config );
                 } );
 
-        // update the reference to the only known transaction
-        CompletionStage<ExplicitTransaction> currentTransactionStage = transactionStage;
-
         transactionStage = newTransactionStage
-                .exceptionally( error -> null ) // ignore errors from starting new transaction
-                .thenCompose( tx ->
-                {
-                    if ( tx == null )
-                    {
-                        // failed to begin new transaction, keep reference to the existing one
-                        return currentTransactionStage;
-                    }
-                    // new transaction started, keep reference to it
-                    return completedFuture( tx );
-                } );
-
+                // ignore errors from starting new transaction
+                .exceptionally( error -> null )
+                // update the reference to the only known transaction
+                .thenCompose( TransactionUtils.newOrCurrentTransaction( transactionStage ) );
         return newTransactionStage;
     }
 

@@ -74,44 +74,6 @@ public class ExplicitTransaction extends AbstractTransaction implements Transact
     }
 
     @Override
-    public CompletionStage<Void> commitAsync()
-    {
-        if ( state == TransactionState.COMMITTED )
-        {
-            return completedWithNull();
-        }
-        else if ( state == TransactionState.ROLLED_BACK )
-        {
-            return failedFuture( new ClientException( "Can't commit, transaction has been rolled back" ) );
-        }
-        else
-        {
-            return resultCursors.retrieveNotConsumedError()
-                    .thenCompose( error -> doCommitAsync().handle( handleCommitOrRollback( error ) ) ).whenComplete(
-                            ( ignore, error ) -> transactionClosed( TransactionState.COMMITTED ) );
-        }
-    }
-
-    @Override
-    public CompletionStage<Void> rollbackAsync()
-    {
-        if ( state == TransactionState.COMMITTED )
-        {
-            return failedFuture( new ClientException( "Can't rollback, transaction has been committed" ) );
-        }
-        else if ( state == TransactionState.ROLLED_BACK )
-        {
-            return completedWithNull();
-        }
-        else
-        {
-            return resultCursors.retrieveNotConsumedError()
-                    .thenCompose( error -> doRollbackAsync().handle( handleCommitOrRollback( error ) ) ).whenComplete(
-                            ( ignore, error ) -> transactionClosed( TransactionState.ROLLED_BACK ) );
-        }
-    }
-
-    @Override
     public StatementResult run( Statement statement )
     {
         StatementResultCursor cursor = Futures.blockingGet( run( statement, false ),
@@ -134,8 +96,8 @@ public class ExplicitTransaction extends AbstractTransaction implements Transact
         return cursorStage;
     }
 
-
-    private CompletionStage<Void> doCommitAsync()
+    @Override
+    protected final CompletionStage<Void> doCommitAsync()
     {
         if ( state == TransactionState.TERMINATED )
         {
@@ -145,7 +107,8 @@ public class ExplicitTransaction extends AbstractTransaction implements Transact
         return protocol.commitTransaction( connection ).thenAccept( bookmarksHolder::setBookmarks );
     }
 
-    private CompletionStage<Void> doRollbackAsync()
+    @Override
+    protected final CompletionStage<Void> doRollbackAsync()
     {
         if ( state == TransactionState.TERMINATED )
         {
@@ -154,20 +117,7 @@ public class ExplicitTransaction extends AbstractTransaction implements Transact
         return protocol.rollbackTransaction( connection );
     }
 
-    private static BiFunction<Void,Throwable,Void> handleCommitOrRollback( Throwable cursorFailure )
-    {
-        return ( ignore, commitOrRollbackError ) ->
-        {
-            CompletionException combinedError = Futures.combineErrors( cursorFailure, commitOrRollbackError );
-            if ( combinedError != null )
-            {
-                throw combinedError;
-            }
-            return null;
-        };
-    }
-
-    private void transactionClosed( TransactionState newState )
+    protected final void transactionClosed( TransactionState newState )
     {
         state = newState;
         connection.release(); // release in background

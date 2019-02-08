@@ -1,1 +1,2 @@
 org.neo4j.driver.internal.DefaultDriverFactoryProvider
+org.neo4j.driver.internal.EmbeddedDriverFactoryProvider

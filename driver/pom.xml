@@ -36,6 +36,12 @@
       <artifactId>slf4j-api</artifactId>
       <optional>true</optional>
     </dependency>
+    <dependency>
+      <groupId>org.neo4j</groupId>
+      <artifactId>neo4j</artifactId>
+      <version>3.5.2</version>
+      <optional>true</optional>
+    </dependency>
 
     <!-- Test dependencies -->
     <dependency>

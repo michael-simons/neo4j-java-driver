@@ -18,10 +18,20 @@
  */
 package org.neo4j.driver.internal;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Function;
 
+import org.neo4j.driver.internal.util.Futures;
+import org.neo4j.driver.internal.util.Supplier;
 import org.neo4j.driver.v1.Transaction;
+import org.neo4j.driver.v1.TransactionWork;
 import org.neo4j.driver.v1.exceptions.ClientException;
+
+import static java.util.concurrent.CompletableFuture.completedFuture;
+import static org.neo4j.driver.internal.util.Futures.completedWithNull;
+import static org.neo4j.driver.internal.util.Futures.failedFuture;
 
 /**
  * @since 2.0
@@ -55,6 +65,129 @@ final class TransactionUtils
     {
         return transactionStage.exceptionally( error -> null ) // handle previous connection acquisition and tx begin failures
                 .thenApply( tx -> tx != null && tx.isOpen() ? tx : null );
+    }
+
+    static <T extends Transaction> Function<T,CompletionStage<T>> newOrCurrentTransaction( CompletionStage<T> currentTransactionStage )
+    {
+        return tx ->
+        {
+            if ( tx == null )
+            {
+                return currentTransactionStage;
+            }
+            return completedFuture( tx );
+        };
+    }
+
+    static Void combineCursorAndTxCloseError(Throwable cursorError, Throwable txCloseError)
+    {
+        // now we have cursor error, active transaction has been closed and connection has been released
+        // back to the pool; try to propagate cursor and transaction close errors, if any
+        CompletionException combinedError = Futures.combineErrors( cursorError, txCloseError );
+        if ( combinedError != null )
+        {
+            throw combinedError;
+        }
+        return null;
+    }
+
+    static <T> T executeWork( Supplier<Transaction> transactionSupplier, TransactionWork<T> work )
+    {
+        try ( Transaction tx = transactionSupplier.get() )
+        {
+            try
+            {
+                T result = work.execute( tx );
+                tx.success();
+                return result;
+            }
+            catch ( Throwable t )
+            {
+                // mark transaction for failure if the given unit of work threw exception
+                // this will override any success marks that were made by the unit of work
+                tx.failure();
+                throw t;
+            }
+        }
+    }
+
+    static <T> void executeWork( CompletableFuture<T> resultFuture, ExplicitTransaction tx, TransactionWork<CompletionStage<T>> work )
+    {
+        CompletionStage<T> workFuture = safeExecuteWork( tx, work );
+        workFuture.whenComplete( ( result, completionError ) ->
+        {
+            Throwable error = Futures.completionExceptionCause( completionError );
+            if ( error != null )
+            {
+                rollbackTxAfterFailedTransactionWork( tx, resultFuture, error );
+            }
+            else
+            {
+                closeTxAfterSucceededTransactionWork( tx, resultFuture, result );
+            }
+        } );
+    }
+
+    static <T> CompletionStage<T> safeExecuteWork( ExplicitTransaction tx, TransactionWork<CompletionStage<T>> work )
+    {
+        // given work might fail in both async and sync way
+        // async failure will result in a failed future being returned
+        // sync failure will result in an exception being thrown
+        try
+        {
+            CompletionStage<T> result = work.execute( tx );
+
+            // protect from given transaction function returning null
+            return result == null ? completedWithNull() : result;
+        }
+        catch ( Throwable workError )
+        {
+            // work threw an exception, wrap it in a future and proceed
+            return failedFuture( workError );
+        }
+    }
+
+    static <T> void rollbackTxAfterFailedTransactionWork( ExplicitTransaction tx, CompletableFuture<T> resultFuture, Throwable error )
+    {
+        if ( tx.isOpen() )
+        {
+            tx.rollbackAsync().whenComplete( ( ignore, rollbackError ) ->
+            {
+                if ( rollbackError != null )
+                {
+                    error.addSuppressed( rollbackError );
+                }
+                resultFuture.completeExceptionally( error );
+            } );
+        }
+        else
+        {
+            resultFuture.completeExceptionally( error );
+        }
+    }
+
+    static <T> void closeTxAfterSucceededTransactionWork( ExplicitTransaction tx, CompletableFuture<T> resultFuture, T result )
+    {
+        if ( tx.isOpen() )
+        {
+            tx.success();
+            tx.closeAsync().whenComplete( ( ignore, completionError ) ->
+            {
+                Throwable commitError = Futures.completionExceptionCause( completionError );
+                if ( commitError != null )
+                {
+                    resultFuture.completeExceptionally( commitError );
+                }
+                else
+                {
+                    resultFuture.complete( result );
+                }
+            } );
+        }
+        else
+        {
+            resultFuture.complete( result );
+        }
     }
 
     private TransactionUtils()

@@ -26,6 +26,7 @@ import java.net.ServerSocket;
 import java.net.URI;
 import java.util.List;
 
+import org.neo4j.driver.v1.exceptions.ClientException;
 import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.v1.util.StubServer;
 import org.neo4j.driver.v1.util.TestUtil;
@@ -156,6 +157,13 @@ class GraphDatabaseTest
                 Thread.interrupted();
             }
         }
+    }
+
+    @Test
+    void shouldThrowExceptionWithUnsupportedScheme()
+    {
+        ClientException expectedException = assertThrows( ClientException.class, () -> GraphDatabase.driver( new URI( "something://wrong" ) ) );
+        assertEquals( "Unsupported scheme: something", expectedException.getMessage() );
     }
 
     @Test

@@ -18,18 +18,24 @@
  */
 package org.neo4j.driver.internal;
 
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.function.BiFunction;
 
+import org.neo4j.driver.internal.async.ResultCursorsHolder;
+import org.neo4j.driver.internal.util.Futures;
 import org.neo4j.driver.v1.Transaction;
 import org.neo4j.driver.v1.exceptions.ClientException;
 
 import static org.neo4j.driver.internal.util.Futures.completedWithNull;
+import static org.neo4j.driver.internal.util.Futures.failedFuture;
 
 /**
  * @since 2.0
  */
 abstract class AbstractTransaction extends AbstractStatementRunner implements Transaction
 {
+    protected final ResultCursorsHolder resultCursors = new ResultCursorsHolder();
     protected volatile TransactionState state = TransactionState.ACTIVE;
 
     @Override
@@ -49,6 +55,63 @@ abstract class AbstractTransaction extends AbstractStatementRunner implements Tr
             state = TransactionState.MARKED_FAILED;
         }
     }
+
+    @Override
+    public CompletionStage<Void> commitAsync()
+    {
+        if ( state == TransactionState.COMMITTED )
+        {
+            return completedWithNull();
+        }
+        else if ( state == TransactionState.ROLLED_BACK )
+        {
+            return failedFuture( new ClientException( "Can't commit, transaction has been rolled back" ) );
+        }
+        else
+        {
+            return resultCursors.retrieveNotConsumedError()
+                    .thenCompose( error -> doCommitAsync().handle( handleCommitOrRollback( error ) ) ).whenComplete(
+                            ( ignore, error ) -> transactionClosed( TransactionState.COMMITTED ) );
+        }
+    }
+
+    private static BiFunction<Void,Throwable,Void> handleCommitOrRollback( Throwable cursorFailure )
+    {
+        return ( ignore, commitOrRollbackError ) ->
+        {
+            CompletionException combinedError = Futures.combineErrors( cursorFailure, commitOrRollbackError );
+            if ( combinedError != null )
+            {
+                throw combinedError;
+            }
+            return null;
+        };
+    }
+
+    @Override
+    public CompletionStage<Void> rollbackAsync()
+    {
+        if ( state == TransactionState.COMMITTED )
+        {
+            return failedFuture( new ClientException( "Can't rollback, transaction has been committed" ) );
+        }
+        else if ( state == TransactionState.ROLLED_BACK )
+        {
+            return completedWithNull();
+        }
+        else
+        {
+            return resultCursors.retrieveNotConsumedError()
+                    .thenCompose( error -> doRollbackAsync().handle( handleCommitOrRollback( error ) ) ).whenComplete(
+                            ( ignore, error ) -> transactionClosed( TransactionState.ROLLED_BACK ) );
+        }
+    }
+
+    protected abstract <T> CompletionStage doCommitAsync();
+
+    protected abstract <T> CompletionStage doRollbackAsync();
+
+    protected abstract void transactionClosed( TransactionState rolledBack );
 
     protected CompletionStage<Void> closeAsync()
     {
