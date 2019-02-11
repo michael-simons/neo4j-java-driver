@@ -46,7 +46,7 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.neo4j.driver.internal.util.Futures.completedWithNull;
 import static org.neo4j.driver.internal.util.Futures.failedFuture;
 
-public class NetworkSession extends AbstractStatementRunner implements Session, BookmarksHolder
+public class NetworkSession extends AbstractStatementRunner implements Session
 {
     private static final String LOG_NAME = "Session";
 
@@ -55,19 +55,20 @@ public class NetworkSession extends AbstractStatementRunner implements Session, 
     private final RetryLogic retryLogic;
     protected final Logger logger;
 
-    private volatile Bookmarks bookmarks = Bookmarks.empty();
+    private final BookmarksHolder bookmarksHolder;
     private volatile CompletionStage<ExplicitTransaction> transactionStage = completedWithNull();
     private volatile CompletionStage<Connection> connectionStage = completedWithNull();
     private volatile CompletionStage<InternalStatementResultCursor> resultCursorStage = completedWithNull();
 
     private final AtomicBoolean open = new AtomicBoolean( true );
 
-    public NetworkSession( ConnectionProvider connectionProvider, AccessMode mode, RetryLogic retryLogic, Logging logging )
+    public NetworkSession( ConnectionProvider connectionProvider, AccessMode mode, RetryLogic retryLogic, Logging logging, BookmarksHolder bookmarksHolder )
     {
         this.connectionProvider = connectionProvider;
         this.mode = mode;
         this.retryLogic = retryLogic;
         this.logger = new PrefixedLogger( "[" + hashCode() + "]", logging.getLog( LOG_NAME ) );
+        this.bookmarksHolder = bookmarksHolder;
     }
 
     @Override
@@ -182,7 +183,7 @@ public class NetworkSession extends AbstractStatementRunner implements Session, 
     @Override
     public Transaction beginTransaction( String bookmark )
     {
-        setBookmarks( Bookmarks.from( bookmark ) );
+        bookmarksHolder.setBookmarks( Bookmarks.from( bookmark ) );
         return beginTransaction();
     }
 
@@ -248,24 +249,9 @@ public class NetworkSession extends AbstractStatementRunner implements Session, 
     }
 
     @Override
-    public Bookmarks getBookmarks()
-    {
-        return bookmarks;
-    }
-
-    @Override
-    public void setBookmarks( Bookmarks bookmarks )
-    {
-        if ( bookmarks != null && !bookmarks.isEmpty() )
-        {
-            this.bookmarks = bookmarks;
-        }
-    }
-
-    @Override
     public String lastBookmark()
     {
-        return bookmarks == null ? null : bookmarks.maxBookmarkAsString();
+        return bookmarksHolder.lastBookmark();
     }
 
     @Override
@@ -446,7 +432,7 @@ public class NetworkSession extends AbstractStatementRunner implements Session, 
         CompletionStage<InternalStatementResultCursor> newResultCursorStage = ensureNoOpenTxBeforeRunningQuery()
                 .thenCompose( ignore -> acquireConnection( mode ) )
                 .thenCompose( connection ->
-                        connection.protocol().runInAutoCommitTransaction( connection, statement, this, config, waitForRunResponse ) );
+                        connection.protocol().runInAutoCommitTransaction( connection, statement, bookmarksHolder, config, waitForRunResponse ) );
 
         resultCursorStage = newResultCursorStage.exceptionally( error -> null );
 
@@ -468,8 +454,8 @@ public class NetworkSession extends AbstractStatementRunner implements Session, 
                 .thenCompose( ignore -> acquireConnection( mode ) )
                 .thenCompose( connection ->
                 {
-                    ExplicitTransaction tx = new ExplicitTransaction( connection, NetworkSession.this );
-                    return tx.beginAsync( bookmarks, config );
+                    ExplicitTransaction tx = new ExplicitTransaction( connection, bookmarksHolder );
+                    return tx.beginAsync( bookmarksHolder.getBookmarks(), config );
                 } );
 
         // update the reference to the only known transaction

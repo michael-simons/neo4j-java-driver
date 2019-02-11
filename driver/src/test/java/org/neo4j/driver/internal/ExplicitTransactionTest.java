@@ -206,7 +206,7 @@ class ExplicitTransactionTest
     {
         RuntimeException error = new RuntimeException( "Wrong bookmark!" );
         Connection connection = connectionWithBegin( handler -> handler.onFailure( error ) );
-        ExplicitTransaction tx = new ExplicitTransaction( connection, mock( NetworkSession.class ) );
+        ExplicitTransaction tx = new ExplicitTransaction( connection, new DefaultBookmarksHolder() );
 
         Bookmarks bookmarks = Bookmarks.from( "SomeBookmark" );
         TransactionConfig txConfig = TransactionConfig.empty();
@@ -221,7 +221,7 @@ class ExplicitTransactionTest
     void shouldNotReleaseConnectionWhenBeginSucceeds()
     {
         Connection connection = connectionWithBegin( handler -> handler.onSuccess( emptyMap() ) );
-        ExplicitTransaction tx = new ExplicitTransaction( connection, mock( NetworkSession.class ) );
+        ExplicitTransaction tx = new ExplicitTransaction( connection, new DefaultBookmarksHolder() );
 
         Bookmarks bookmarks = Bookmarks.from( "SomeBookmark" );
         TransactionConfig txConfig = TransactionConfig.empty();
@@ -235,7 +235,7 @@ class ExplicitTransactionTest
     void shouldReleaseConnectionWhenTerminatedAndCommitted()
     {
         Connection connection = connectionMock();
-        ExplicitTransaction tx = new ExplicitTransaction( connection, mock( NetworkSession.class ) );
+        ExplicitTransaction tx = new ExplicitTransaction( connection, new DefaultBookmarksHolder() );
 
         tx.markTerminated();
 
@@ -249,7 +249,7 @@ class ExplicitTransactionTest
     void shouldReleaseConnectionWhenTerminatedAndRolledBack()
     {
         Connection connection = connectionMock();
-        ExplicitTransaction tx = new ExplicitTransaction( connection, mock( NetworkSession.class ) );
+        ExplicitTransaction tx = new ExplicitTransaction( connection, new DefaultBookmarksHolder() );
 
         tx.markTerminated();
         await( tx.rollbackAsync() );
@@ -264,12 +264,7 @@ class ExplicitTransactionTest
 
     private static ExplicitTransaction beginTx( Connection connection, Bookmarks initialBookmarks )
     {
-        return beginTx( connection, mock( NetworkSession.class ), initialBookmarks );
-    }
-
-    private static ExplicitTransaction beginTx( Connection connection, NetworkSession session, Bookmarks initialBookmarks )
-    {
-        ExplicitTransaction tx = new ExplicitTransaction( connection, session );
+        ExplicitTransaction tx = new ExplicitTransaction( connection, new DefaultBookmarksHolder() );
         return await( tx.beginAsync( initialBookmarks, TransactionConfig.empty() ) );
     }
 

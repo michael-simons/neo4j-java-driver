@@ -277,16 +277,6 @@ class NetworkSessionTest
     }
 
     @Test
-    void bookmarkCanBeSet()
-    {
-        Bookmarks bookmarks = Bookmarks.from( "neo4j:bookmark:v1:tx100" );
-
-        session.setBookmarks( bookmarks );
-
-        assertEquals( bookmarks.maxBookmarkAsString(), session.lastBookmark() );
-    }
-
-    @Test
     void bookmarkIsPropagatedFromSession()
     {
         Bookmarks bookmarks = Bookmarks.from( "Bookmarks" );
@@ -301,8 +291,7 @@ class NetworkSessionTest
     void bookmarkIsPropagatedInBeginTransaction()
     {
         Bookmarks bookmarks = Bookmarks.from( "Bookmarks" );
-        NetworkSession session = newSession( connectionProvider, READ );
-        session.setBookmarks( bookmarks );
+        NetworkSession session = newSession( connectionProvider, READ, bookmarks );
 
         Transaction tx = session.beginTransaction();
         assertNotNull( tx );
@@ -348,21 +337,12 @@ class NetworkSessionTest
         verify( connectionProvider ).acquireConnection( WRITE );
     }
 
-    @Test
-    void setLastBookmark()
-    {
-        NetworkSession session = newSession( mock( ConnectionProvider.class ), WRITE );
 
-        session.setBookmarks( Bookmarks.from( "TheBookmark" ) );
-
-        assertEquals( "TheBookmark", session.lastBookmark() );
-    }
 
     @Test
     void testPassingNoBookmarkShouldRetainBookmark()
     {
-        NetworkSession session = newSession( connectionProvider, READ );
-        session.setBookmarks( Bookmarks.from( "X" ) );
+        NetworkSession session = newSession( connectionProvider, READ, Bookmarks.from( "X" ) );
         session.beginTransaction();
         assertThat( session.lastBookmark(), equalTo( "X" ) );
     }
@@ -371,8 +351,7 @@ class NetworkSessionTest
     @Test
     void testPassingNullBookmarkShouldRetainBookmark()
     {
-        NetworkSession session = newSession( connectionProvider, READ );
-        session.setBookmarks( Bookmarks.from( "X" ) );
+        NetworkSession session = newSession( connectionProvider, READ, Bookmarks.from( "X" ) );
         session.beginTransaction( (String) null );
         assertThat( session.lastBookmark(), equalTo( "X" ) );
     }
@@ -507,24 +486,6 @@ class NetworkSessionTest
     }
 
     @Test
-    void shouldNotOverwriteBookmarkWithNull()
-    {
-        NetworkSession session = newSession( mock( ConnectionProvider.class ), READ, Bookmarks.from( "Cat" ) );
-        assertEquals( "Cat", session.lastBookmark() );
-        session.setBookmarks( null );
-        assertEquals( "Cat", session.lastBookmark() );
-    }
-
-    @Test
-    void shouldNotOverwriteBookmarkWithEmptyBookmark()
-    {
-        NetworkSession session = newSession( mock( ConnectionProvider.class ), READ, Bookmarks.from( "Cat" ) );
-        assertEquals( "Cat", session.lastBookmark() );
-        session.setBookmarks( Bookmarks.empty() );
-        assertEquals( "Cat", session.lastBookmark() );
-    }
-
-    @Test
     void shouldDoNothingWhenClosingWithoutAcquiredConnection()
     {
         RuntimeException error = new RuntimeException( "Hi" );
@@ -564,7 +525,7 @@ class NetworkSessionTest
                 .thenReturn( completedFuture( connection1 ) ).thenReturn( completedFuture( connection2 ) );
 
         Bookmarks bookmarks = Bookmarks.from( "neo4j:bookmark:v1:tx42" );
-        session.setBookmarks( bookmarks );
+        NetworkSession session = newSession( connectionProvider, READ, bookmarks );
 
         Exception e = assertThrows( Exception.class, session::beginTransaction );
         assertEquals( error, e );
@@ -588,7 +549,7 @@ class NetworkSessionTest
                 .thenReturn( completedFuture( connection1 ) ).thenReturn( completedFuture( connection2 ) );
 
         Bookmarks bookmarks = Bookmarks.from( "neo4j:bookmark:v1:tx42" );
-        session.setBookmarks( bookmarks );
+        NetworkSession session = newSession( connectionProvider, READ, bookmarks );
 
         Exception e = assertThrows( Exception.class, session::beginTransaction );
         assertEquals( error, e );
@@ -661,37 +622,6 @@ class NetworkSessionTest
         tx.close();
 
         assertNotNull( session.beginTransaction() );
-    }
-
-    @Test
-    void shouldAllowToGetAndSetBookmarks()
-    {
-        NetworkSession session = newSession( connectionProvider, READ );
-        assertEquals( Bookmarks.empty(), session.getBookmarks() );
-
-        session.setBookmarks( null );
-        assertEquals( Bookmarks.empty(), session.getBookmarks() );
-
-        session.setBookmarks( Bookmarks.empty() );
-        assertEquals( Bookmarks.empty(), session.getBookmarks() );
-
-        Bookmarks bookmarks1 = Bookmarks.from( "neo4j:bookmark:v1:tx1" );
-        session.setBookmarks( bookmarks1 );
-        assertEquals( bookmarks1, session.getBookmarks() );
-
-        session.setBookmarks( null );
-        assertEquals( bookmarks1, session.getBookmarks() );
-
-        session.setBookmarks( Bookmarks.empty() );
-        assertEquals( bookmarks1, session.getBookmarks() );
-
-        Bookmarks bookmarks2 = Bookmarks.from( "neo4j:bookmark:v1:tx2" );
-        session.setBookmarks( bookmarks2 );
-        assertEquals( bookmarks2, session.getBookmarks() );
-
-        Bookmarks bookmarks3 = Bookmarks.from( "neo4j:bookmark:v1:tx42" );
-        session.setBookmarks( bookmarks3 );
-        assertEquals( bookmarks3, session.getBookmarks() );
     }
 
     private void testConnectionAcquisition( AccessMode sessionMode, AccessMode transactionMode )
@@ -866,9 +796,7 @@ class NetworkSessionTest
     private static NetworkSession newSession( ConnectionProvider connectionProvider, AccessMode mode,
             RetryLogic retryLogic, Bookmarks bookmarks )
     {
-        NetworkSession session = new NetworkSession( connectionProvider, mode, retryLogic, DEV_NULL_LOGGING );
-        session.setBookmarks( bookmarks );
-        return session;
+        return new NetworkSession( connectionProvider, mode, retryLogic, DEV_NULL_LOGGING, new DefaultBookmarksHolder( bookmarks ) );
     }
 
     private static void verifyInvocationCount( TransactionWork<?> workSpy, int expectedInvocationCount )

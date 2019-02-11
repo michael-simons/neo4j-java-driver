@@ -32,9 +32,9 @@ import java.util.concurrent.CompletionStage;
 
 import org.neo4j.driver.internal.Bookmarks;
 import org.neo4j.driver.internal.BookmarksHolder;
+import org.neo4j.driver.internal.DefaultBookmarksHolder;
 import org.neo4j.driver.internal.ExplicitTransaction;
 import org.neo4j.driver.internal.InternalStatementResultCursor;
-import org.neo4j.driver.internal.SimpleBookmarksHolder;
 import org.neo4j.driver.internal.async.ChannelAttributes;
 import org.neo4j.driver.internal.async.inbound.InboundMessageDispatcher;
 import org.neo4j.driver.internal.handlers.BeginTxResponseHandler;
@@ -325,7 +325,7 @@ class BoltProtocolV3Test
         CompletionStage<InternalStatementResultCursor> cursorStage;
         if ( autoCommitTx )
         {
-            BookmarksHolder bookmarksHolder = new SimpleBookmarksHolder( initialBookmarks );
+            BookmarksHolder bookmarksHolder = new DefaultBookmarksHolder( initialBookmarks );
             cursorStage = protocol.runInAutoCommitTransaction( connection, STATEMENT, bookmarksHolder, config, false );
         }
         else
@@ -350,7 +350,7 @@ class BoltProtocolV3Test
     private void testSuccessfulRunInAutoCommitTxWithWaitingForResponse( Bookmarks bookmarks, TransactionConfig config ) throws Exception
     {
         Connection connection = connectionMock();
-        BookmarksHolder bookmarksHolder = new SimpleBookmarksHolder( bookmarks );
+        BookmarksHolder bookmarksHolder = new DefaultBookmarksHolder( bookmarks );
 
         CompletableFuture<InternalStatementResultCursor> cursorFuture = protocol.runInAutoCommitTransaction( connection, STATEMENT, bookmarksHolder,
                 config, true ).toCompletableFuture();
@@ -370,7 +370,7 @@ class BoltProtocolV3Test
     private void testFailedRunInAutoCommitTxWithWaitingForResponse( Bookmarks bookmarks, TransactionConfig config ) throws Exception
     {
         Connection connection = connectionMock();
-        BookmarksHolder bookmarksHolder = new SimpleBookmarksHolder( bookmarks );
+        BookmarksHolder bookmarksHolder = new DefaultBookmarksHolder( bookmarks );
 
         CompletableFuture<InternalStatementResultCursor> cursorFuture = protocol.runInAutoCommitTransaction( connection, STATEMENT, bookmarksHolder,
                 config, true ).toCompletableFuture();
