@@ -9,6 +9,7 @@
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
     <rootDir>${project.basedir}</rootDir>
+    <mockito.version>2.18.3</mockito.version>
     <surefire.and.failsafe.version>2.22.1</surefire.and.failsafe.version>
     <junit.version>5.4.0</junit.version>
     <parallelizable.it.forkCount>1C</parallelizable.it.forkCount>
@@ -78,13 +79,19 @@
       <dependency>
         <groupId>org.mockito</groupId>
         <artifactId>mockito-core</artifactId>
-        <version>2.18.3</version>
+        <version>${mockito.version}</version>
         <scope>test</scope>
       </dependency>
       <dependency>
         <groupId>org.junit.jupiter</groupId>
         <artifactId>junit-jupiter</artifactId>
         <version>${junit.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-junit-jupiter</artifactId>
+        <version>${mockito.version}</version>
         <scope>test</scope>
       </dependency>
       <dependency>
