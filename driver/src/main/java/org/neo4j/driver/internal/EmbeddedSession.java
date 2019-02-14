@@ -18,11 +18,13 @@
  */
 package org.neo4j.driver.internal;
 
+import java.time.Duration;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Supplier;
 
 import org.neo4j.driver.internal.logging.PrefixedLogger;
 import org.neo4j.driver.internal.retry.RetryLogic;
@@ -100,11 +102,17 @@ public class EmbeddedSession extends AbstractStatementRunner implements Session
     @Override
     public CompletionStage<Transaction> beginTransactionAsync( TransactionConfig config )
     {
+        Objects.requireNonNull( config, "Transaction config can't be null" );
+
         ensureSessionIsOpen();
 
         // create a chain that acquires connection and starts a transaction
-        CompletionStage<Transaction> newTransactionStage =
-                ensureNoOpenTxBeforeStartingTx( transactionStage ).thenApply( ignore -> new EmbeddedTransaction( graphDatabaseService.beginTx() ) );
+        CompletionStage<Transaction> newTransactionStage = ensureNoOpenTxBeforeStartingTx( transactionStage ).thenApply( ignore ->
+        {
+            Duration timeout = config.timeout();
+            org.neo4j.graphdb.Transaction transaction = graphDatabaseService.beginTx( timeout.toMillis(), TimeUnit.MILLISECONDS );
+            return new EmbeddedTransaction( new DefaultEmbeddedCypherRunner( graphDatabaseService ), transaction );
+        } );
 
         transactionStage = newTransactionStage
                 // ignore errors from starting new transaction
@@ -179,7 +187,7 @@ public class EmbeddedSession extends AbstractStatementRunner implements Session
     public StatementResult run( Statement statement, TransactionConfig config )
     {
         ensureSessionIsOpen();
-        return Futures.blockingGet( ensureNoOpenTxBeforeRunningQuery( transactionStage ).thenApply( __ -> new EmbeddedStatementResult() ) );
+        return Futures.blockingGet( ensureNoOpenTxBeforeRunningQuery( transactionStage ).thenApply( __ -> new EmbeddedStatementResult(null) ) );
     }
 
     @Override

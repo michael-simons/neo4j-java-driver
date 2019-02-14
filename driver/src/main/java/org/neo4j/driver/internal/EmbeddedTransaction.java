@@ -21,7 +21,6 @@ package org.neo4j.driver.internal;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-import org.neo4j.driver.internal.async.ResultCursorsHolder;
 import org.neo4j.driver.internal.util.Futures;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
@@ -38,10 +37,12 @@ import static org.neo4j.driver.internal.util.Futures.failedFuture;
 public class EmbeddedTransaction extends AbstractTransaction implements Transaction
 {
 
+    private final EmbeddedCypherRunner cypherRunner;
     private final org.neo4j.graphdb.Transaction transaction;
 
-    public EmbeddedTransaction( org.neo4j.graphdb.Transaction transaction )
+    public EmbeddedTransaction( EmbeddedCypherRunner cypherRunner, org.neo4j.graphdb.Transaction transaction )
     {
+        this.cypherRunner = cypherRunner;
         this.transaction = transaction;
     }
 
@@ -54,7 +55,7 @@ public class EmbeddedTransaction extends AbstractTransaction implements Transact
     @Override
     public StatementResult run( Statement statement )
     {
-        return null;
+        return new EmbeddedStatementResult( cypherRunner.execute( statement.text(), statement.parameters().asMap() ) );
     }
 
     @Override
