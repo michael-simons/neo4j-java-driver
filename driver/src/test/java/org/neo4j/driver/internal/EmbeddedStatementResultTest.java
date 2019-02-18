@@ -19,6 +19,7 @@
 package org.neo4j.driver.internal;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.Answers;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,10 +30,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.neo4j.driver.internal.value.NullValue;
 import org.neo4j.driver.v1.Record;
+import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Value;
 import org.neo4j.driver.v1.exceptions.NoSuchRecordException;
 import org.neo4j.driver.v1.util.Pair;
+import org.neo4j.graphdb.QueryExecutionType;
 import org.neo4j.graphdb.Result;
 
 import static java.util.Arrays.asList;
@@ -318,7 +321,7 @@ class EmbeddedStatementResultTest
         assertThat( result.peek().get( "k1" ), equalTo( value( "v1-1" ) ) );
 
         // WHEN
-        result.next();
+        Record r = result.next();
 
         // THEN
         assertThat( result.peek().get( "k1" ), equalTo( value( "v1-2" ) ) );
@@ -370,7 +373,13 @@ class EmbeddedStatementResultTest
             return null;
         } ).when( result ).close();
 
-        return new EmbeddedStatementResult( result );
+        QueryExecutionType queryExecutionType = QueryExecutionType.query( QueryExecutionType.QueryType.READ_WRITE );
+        when( result.getQueryExecutionType() ).thenReturn( queryExecutionType );
+        when( result.getQueryStatistics() ).then( Answers.RETURNS_MOCKS );
+        when( result.columns() ).thenReturn( columns );
+
+        Statement statement = mock( Statement.class );
+        return new EmbeddedStatementResult( statement, result );
     }
 
     private List<Value> values( Record record )

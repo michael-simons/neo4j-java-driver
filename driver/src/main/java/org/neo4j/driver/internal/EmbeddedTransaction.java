@@ -55,7 +55,7 @@ public class EmbeddedTransaction extends AbstractTransaction implements Transact
     @Override
     public StatementResult run( Statement statement )
     {
-        return new EmbeddedStatementResult( cypherRunner.execute( statement.text(), statement.parameters().asMap() ) );
+        return new EmbeddedStatementResult( statement, cypherRunner.execute( statement.text(), statement.parameters().asMap() ) );
     }
 
     @Override

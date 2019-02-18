@@ -187,7 +187,7 @@ public class EmbeddedSession extends AbstractStatementRunner implements Session
     public StatementResult run( Statement statement, TransactionConfig config )
     {
         ensureSessionIsOpen();
-        return Futures.blockingGet( ensureNoOpenTxBeforeRunningQuery( transactionStage ).thenApply( __ -> new EmbeddedStatementResult(null) ) );
+        return Futures.blockingGet( ensureNoOpenTxBeforeRunningQuery( transactionStage ).thenApply( __ -> new EmbeddedStatementResult(null, null) ) );
     }
 
     @Override
