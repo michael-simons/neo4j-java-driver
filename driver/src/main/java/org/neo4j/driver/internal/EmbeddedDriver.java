@@ -19,12 +19,13 @@
 package org.neo4j.driver.internal;
 
 import org.neo4j.driver.internal.metrics.MetricsProvider;
-import org.neo4j.driver.internal.security.SecurityPlan;
 import org.neo4j.driver.v1.AccessMode;
 import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.Logging;
 import org.neo4j.driver.v1.Metrics;
 import org.neo4j.driver.v1.Session;
+
+import static org.neo4j.driver.internal.EmbeddedSession.BOOKMARKS_NOT_SUPPORTED_MESSAGE;
 
 /**
  * A driver that is based on an embedded Neo4j instance in the same JVM.
@@ -55,31 +56,31 @@ class EmbeddedDriver extends AbstractDriver implements Driver
     @Override
     public Session session( AccessMode mode )
     {
-        return null;
+        return sessionFactory.newInstance( mode, Bookmarks.empty() );
     }
 
     @Override
     public Session session( String bookmark )
     {
-        return null;
+        throw new UnsupportedOperationException( BOOKMARKS_NOT_SUPPORTED_MESSAGE );
     }
 
     @Override
     public Session session( AccessMode mode, String bookmark )
     {
-        return null;
+        throw new UnsupportedOperationException( BOOKMARKS_NOT_SUPPORTED_MESSAGE );
     }
 
     @Override
     public Session session( Iterable<String> bookmarks )
     {
-        return null;
+        throw new UnsupportedOperationException( BOOKMARKS_NOT_SUPPORTED_MESSAGE );
     }
 
     @Override
     public Session session( AccessMode mode, Iterable<String> bookmarks )
     {
-        return null;
+        throw new UnsupportedOperationException( BOOKMARKS_NOT_SUPPORTED_MESSAGE );
     }
 
     @Override

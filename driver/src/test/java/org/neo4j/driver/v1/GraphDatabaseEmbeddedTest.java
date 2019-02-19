@@ -39,11 +39,11 @@ class GraphDatabaseEmbeddedTest
     File temporaryBaseDirectory;
 
     @Test
-    void fileSchemeShouldInstantiateDirectDriver() throws Exception
+    void fileSchemeShouldInstantiateDirectDriver()
     {
         File graphDb = new File( temporaryBaseDirectory, "graph.db" );
 
-        try ( Driver driver = GraphDatabase.driver( graphDb.toURI() ) )
+        try ( Driver driver = GraphDatabase.driver( graphDb.toURI(), Config.builder().withoutEncryption().toConfig() ) )
         {
             assertThat( driver, is( embeddedDriver() ) );
         }

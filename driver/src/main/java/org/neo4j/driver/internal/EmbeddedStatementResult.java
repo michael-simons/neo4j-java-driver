@@ -23,7 +23,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Spliterator;
 import java.util.Spliterators;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -38,8 +39,6 @@ import org.neo4j.graphdb.Result;
 
 public class EmbeddedStatementResult implements StatementResult
 {
-    public static final boolean NOT_PEEKED_AHEAD = false;
-    public static final boolean PEEKED_AHEAD = true;
     /**
      * The original statement executed that materialized this resultset.
      */
@@ -51,12 +50,7 @@ public class EmbeddedStatementResult implements StatementResult
 
     private volatile ResultSummary resultSummary;
 
-    /**
-     * Filled after {@link #peek()} was successfully called.
-     */
-    private volatile Record recordPeekedAt;
-
-    private final AtomicBoolean peekedAhead = new AtomicBoolean( NOT_PEEKED_AHEAD );
+    public AtomicReference<LazyRecordSupplier> nextRecordSupplier = new AtomicReference<>( new LazyRecordSupplier( this::nextImpl ) );
 
     EmbeddedStatementResult( Statement statement, Result internalResult )
     {
@@ -73,39 +67,28 @@ public class EmbeddedStatementResult implements StatementResult
     @Override
     public boolean hasNext()
     {
-        return peekedAhead.get() || internalResult.hasNext();
+        return internalResult.hasNext();
     }
 
     @Override
     public Record peek()
     {
-        if ( peekedAhead.compareAndSet( NOT_PEEKED_AHEAD, PEEKED_AHEAD ) )
-        {
-            synchronized ( this )
-            {
-                recordPeekedAt = nextImpl();
-            }
-        }
-
-        return recordPeekedAt;
+        return nextRecordSupplier.get().get();
     }
 
     @Override
     public Record next()
     {
-        if ( peekedAhead.compareAndSet( PEEKED_AHEAD, NOT_PEEKED_AHEAD ) )
-        {
-            return this.recordPeekedAt;
-        }
-        else
-        {
-            return nextImpl();
-        }
+        return nextRecordSupplier.getAndSet( new LazyRecordSupplier( this::nextImpl ) ).get();
     }
 
     private Record nextImpl()
     {
         Map<String,Object> next = internalResult.next();
+        if ( !internalResult.hasNext() )
+        {
+            this.internalResult.close();
+        }
         return Optional.ofNullable( next ).map( EmbeddedRecord::of ).orElseThrow( () -> new NoSuchRecordException( "No more records" ) );
     }
 
@@ -134,7 +117,7 @@ public class EmbeddedStatementResult implements StatementResult
     @Override
     public Stream<Record> stream()
     {
-        return StreamSupport.stream( Spliterators.spliteratorUnknownSize( this, Spliterator.ORDERED ), NOT_PEEKED_AHEAD );
+        return StreamSupport.stream( Spliterators.spliteratorUnknownSize( this, Spliterator.ORDERED ), false );
     }
 
     @Override
@@ -152,18 +135,18 @@ public class EmbeddedStatementResult implements StatementResult
     @Override
     public ResultSummary consume()
     {
-        // Consume everything and throw it away
-        this.list();
-        ResultSummary resultSummaryAfterConsumption = this.resultSummary;
+        ResultSummary resultSummaryAfterConsumption = resultSummary;
         if ( resultSummaryAfterConsumption == null )
         {
             synchronized ( this )
             {
-                resultSummaryAfterConsumption = this.resultSummary;
+                resultSummaryAfterConsumption = resultSummary;
                 if ( resultSummaryAfterConsumption == null )
                 {
-                    this.resultSummary = EmbeddedResultSummary.extractSummary( statement, internalResult );
-                    resultSummaryAfterConsumption = this.resultSummary;
+                    // Consume everything and throw it away
+                    list();
+                    resultSummary = EmbeddedResultSummary.extractSummary( statement, internalResult );
+                    resultSummaryAfterConsumption = resultSummary;
                 }
             }
         }
@@ -174,5 +157,35 @@ public class EmbeddedStatementResult implements StatementResult
     public ResultSummary summary()
     {
         return consume();
+    }
+
+    static class LazyRecordSupplier implements Supplier<Record>
+    {
+        private final Supplier<Record> delegate;
+        private volatile Record reference;
+
+        public LazyRecordSupplier( Supplier<Record> delegate )
+        {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Record get()
+        {
+            Record resolvedReference = reference;
+            if ( resolvedReference == null )
+            {
+                synchronized ( this )
+                {
+                    resolvedReference = reference;
+                    if ( resolvedReference == null )
+                    {
+                        reference = delegate.get();
+                        resolvedReference = reference;
+                    }
+                }
+            }
+            return resolvedReference;
+        }
     }
 }

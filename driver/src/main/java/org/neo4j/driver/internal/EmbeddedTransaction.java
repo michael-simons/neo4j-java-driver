@@ -20,6 +20,7 @@ package org.neo4j.driver.internal;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Supplier;
 
 import org.neo4j.driver.internal.util.Futures;
 import org.neo4j.driver.v1.Statement;
@@ -27,6 +28,7 @@ import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.StatementResultCursor;
 import org.neo4j.driver.v1.Transaction;
 import org.neo4j.driver.v1.exceptions.ClientException;
+import org.neo4j.graphdb.QueryExecutionException;
 
 import static org.neo4j.driver.internal.util.Futures.completedWithNull;
 import static org.neo4j.driver.internal.util.Futures.failedFuture;
@@ -38,12 +40,12 @@ public class EmbeddedTransaction extends AbstractTransaction implements Transact
 {
 
     private final EmbeddedCypherRunner cypherRunner;
-    private final org.neo4j.graphdb.Transaction transaction;
+    private final ThreadLocal<org.neo4j.graphdb.Transaction> threadBoundTransaction;
 
-    public EmbeddedTransaction( EmbeddedCypherRunner cypherRunner, org.neo4j.graphdb.Transaction transaction )
+    public EmbeddedTransaction( EmbeddedCypherRunner cypherRunner, Supplier<org.neo4j.graphdb.Transaction> transactionSupplier )
     {
         this.cypherRunner = cypherRunner;
-        this.transaction = transaction;
+        this.threadBoundTransaction = ThreadLocal.withInitial( transactionSupplier );
     }
 
     @Override
@@ -55,7 +57,21 @@ public class EmbeddedTransaction extends AbstractTransaction implements Transact
     @Override
     public StatementResult run( Statement statement )
     {
-        return new EmbeddedStatementResult( statement, cypherRunner.execute( statement.text(), statement.parameters().asMap() ) );
+        try
+        {
+            StatementResult result = new EmbeddedStatementResult( statement, cypherRunner.execute( statement.text(), statement.parameters().asMap() ) );
+            this.success();
+            return result;
+        }
+        catch ( QueryExecutionException e )
+        {
+            this.failure();
+            throw e;
+        }
+        finally
+        {
+            this.close();
+        }
     }
 
     @Override
@@ -75,8 +91,9 @@ public class EmbeddedTransaction extends AbstractTransaction implements Transact
 
         return CompletableFuture.runAsync( () ->
         {
-            this.transaction.success();
-            this.transaction.close();
+            org.neo4j.graphdb.Transaction transaction = this.threadBoundTransaction.get();
+            transaction.success();
+            transaction.close();
         } );
     }
 
@@ -89,8 +106,9 @@ public class EmbeddedTransaction extends AbstractTransaction implements Transact
         }
         return CompletableFuture.runAsync( () ->
         {
-            this.transaction.failure();
-            this.transaction.close();
+            org.neo4j.graphdb.Transaction transaction = this.threadBoundTransaction.get();
+            transaction.failure();
+            transaction.close();
         } );
     }
 

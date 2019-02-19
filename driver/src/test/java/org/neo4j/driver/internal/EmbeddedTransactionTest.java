@@ -5,7 +5,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import org.neo4j.driver.internal.util.Futures;
 import org.neo4j.driver.v1.exceptions.ClientException;
 
 import static org.junit.Assert.assertEquals;
@@ -27,7 +26,7 @@ class EmbeddedTransactionTest
     void shouldRollbackOnImplicitFailure()
     {
         // Given
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         // When
         tx.close();
@@ -41,7 +40,7 @@ class EmbeddedTransactionTest
     void shouldRollbackOnExplicitFailure()
     {
         // Given
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         // When
         tx.failure();
@@ -57,7 +56,7 @@ class EmbeddedTransactionTest
     void shouldCommitOnSuccess()
     {
         // Given
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         // When
         tx.success();
@@ -71,7 +70,7 @@ class EmbeddedTransactionTest
     @Test
     void shouldBeOpenAfterConstruction()
     {
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         assertTrue( tx.isOpen() );
     }
@@ -79,7 +78,7 @@ class EmbeddedTransactionTest
     @Test
     void shouldBeOpenWhenMarkedForSuccess()
     {
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         tx.success();
 
@@ -89,7 +88,7 @@ class EmbeddedTransactionTest
     @Test
     void shouldBeOpenWhenMarkedForFailure()
     {
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         tx.failure();
 
@@ -99,7 +98,7 @@ class EmbeddedTransactionTest
     @Test
     void shouldBeClosedWhenMarkedAsTerminated()
     {
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         tx.markTerminated();
 
@@ -109,7 +108,7 @@ class EmbeddedTransactionTest
     @Test
     void shouldBeClosedAfterCommit()
     {
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         tx.success();
         tx.close();
@@ -120,7 +119,7 @@ class EmbeddedTransactionTest
     @Test
     void shouldBeClosedAfterRollback()
     {
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         tx.failure();
         tx.close();
@@ -131,7 +130,7 @@ class EmbeddedTransactionTest
     @Test
     void shouldBeClosedWhenMarkedTerminatedAndClosed()
     {
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         tx.markTerminated();
         tx.close();
@@ -142,11 +141,11 @@ class EmbeddedTransactionTest
     @Test
     void shouldNotCommitWhenMarkedAsTerminated()
     {
-        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, transaction );
+        EmbeddedTransaction tx = new EmbeddedTransaction( cypherRunner, () -> transaction );
 
         tx.markTerminated();
 
-        ClientException clientException = assertThrows( ClientException.class, () -> Futures.blockingGet( tx.commitAsync() ) );
+        ClientException clientException = assertThrows( ClientException.class, () -> tx.close() );
 
         assertEquals( "Transaction can't be committed. It has been rolled back either because of an error or explicit termination",
                 clientException.getMessage() );

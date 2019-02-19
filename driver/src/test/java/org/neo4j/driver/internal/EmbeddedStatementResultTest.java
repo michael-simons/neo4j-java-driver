@@ -321,7 +321,7 @@ class EmbeddedStatementResultTest
         assertThat( result.peek().get( "k1" ), equalTo( value( "v1-1" ) ) );
 
         // WHEN
-        Record r = result.next();
+        result.next();
 
         // THEN
         assertThat( result.peek().get( "k1" ), equalTo( value( "v1-2" ) ) );
@@ -369,7 +369,7 @@ class EmbeddedStatementResultTest
         when( result.next() ).then( invocation -> records[Math.min( counter.getAndIncrement(), numberOfRecords )] );
         doAnswer( invocation ->
         {
-            counter.set( Integer.MAX_VALUE );
+            counter.set( numberOfRecords );
             return null;
         } ).when( result ).close();
 

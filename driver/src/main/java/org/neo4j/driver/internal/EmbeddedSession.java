@@ -21,10 +21,12 @@ package org.neo4j.driver.internal;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 import org.neo4j.driver.internal.logging.PrefixedLogger;
 import org.neo4j.driver.internal.retry.RetryLogic;
@@ -42,7 +44,6 @@ import org.neo4j.driver.v1.exceptions.ClientException;
 import org.neo4j.graphdb.GraphDatabaseService;
 
 import static java.util.Collections.emptyMap;
-import static org.neo4j.driver.internal.TransactionUtils.ensureNoOpenTxBeforeRunningQuery;
 import static org.neo4j.driver.internal.TransactionUtils.ensureNoOpenTxBeforeStartingTx;
 import static org.neo4j.driver.internal.TransactionUtils.executeWork;
 import static org.neo4j.driver.internal.TransactionUtils.existingTransactionOrNull;
@@ -55,8 +56,8 @@ import static org.neo4j.driver.internal.util.Futures.completedWithNull;
  */
 public class EmbeddedSession extends AbstractStatementRunner implements Session
 {
-    private static final String LOG_NAME = "EmbeddedSession";
-    private static final String BOOKMARKS_NOT_SUPPORTED_MESSAGE = "Embedded session does not support bookmarks";
+    static final String LOG_NAME = "EmbeddedSession";
+    static final String BOOKMARKS_NOT_SUPPORTED_MESSAGE = "Embedded session does not support bookmarks";
 
     private final GraphDatabaseService graphDatabaseService;
     private final RetryLogic retryLogic;
@@ -109,8 +110,10 @@ public class EmbeddedSession extends AbstractStatementRunner implements Session
         // create a chain that acquires connection and starts a transaction
         CompletionStage<Transaction> newTransactionStage = ensureNoOpenTxBeforeStartingTx( transactionStage ).thenApply( ignore ->
         {
-            Duration timeout = config.timeout();
-            org.neo4j.graphdb.Transaction transaction = graphDatabaseService.beginTx( timeout.toMillis(), TimeUnit.MILLISECONDS );
+            // Use Neo4j's default timeout https://neo4j.com/docs/operations-manual/current/monitoring/transaction-management/#transaction-management-transaction-timeout
+            long timeoutInMillis = Optional.ofNullable( config.timeout() ).map( Duration::toMillis ).orElse( 0L );
+
+            Supplier<org.neo4j.graphdb.Transaction> transaction = () -> graphDatabaseService.beginTx( timeoutInMillis, TimeUnit.MILLISECONDS );
             return new EmbeddedTransaction( new DefaultEmbeddedCypherRunner( graphDatabaseService ), transaction );
         } );
 
@@ -186,8 +189,7 @@ public class EmbeddedSession extends AbstractStatementRunner implements Session
     @Override
     public StatementResult run( Statement statement, TransactionConfig config )
     {
-        ensureSessionIsOpen();
-        return Futures.blockingGet( ensureNoOpenTxBeforeRunningQuery( transactionStage ).thenApply( __ -> new EmbeddedStatementResult(null, null) ) );
+        return beginTransaction( config ).run( statement );
     }
 
     @Override

@@ -48,6 +48,7 @@ public class EmbeddedSessionFactory implements SessionFactory
     @Override
     public Session newInstance( AccessMode mode, Bookmarks bookmarks )
     {
+        requireSupportedAccessMode( mode );
         return new EmbeddedSession( graphDatabaseService, retryLogic, logging );
     }
 
@@ -61,5 +62,13 @@ public class EmbeddedSessionFactory implements SessionFactory
     public CompletionStage<Void> close()
     {
         return CompletableFuture.runAsync( () -> graphDatabaseService.shutdown() );
+    }
+
+    static void requireSupportedAccessMode( AccessMode accessMode )
+    {
+        if ( accessMode != AccessMode.WRITE )
+        {
+            throw new IllegalArgumentException( "Embedded driver does not support READ access mode." );
+        }
     }
 }
