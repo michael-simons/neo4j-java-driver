@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 import org.neo4j.driver.internal.messaging.ValueUnpacker;
 import org.neo4j.driver.internal.value.ListValue;
@@ -30,6 +32,8 @@ import org.neo4j.driver.internal.value.NullValue;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Value;
 import org.neo4j.driver.v1.Values;
+import org.neo4j.graphdb.Label;
+import org.neo4j.graphdb.Node;
 import org.neo4j.values.storable.DurationValue;
 import org.neo4j.values.storable.PointValue;
 
@@ -52,12 +56,19 @@ public class EmbeddedRecord extends AbstractRecord implements Record
      * @param o
      * @return
      */
-    private static Value mapToValue( Object o )
+    private static Object mapToValue( Object o )
     {
 
         if ( o == null )
         {
             return NullValue.NULL;
+        }
+
+        if ( o instanceof Node )
+        {
+            Node n = (Node) o;
+            List<String> labels = StreamSupport.stream( n.getLabels().spliterator(), false ).map( Label::name ).collect( Collectors.toList() );
+            return new InternalNode( n.getId(), labels, (Map<String,Value>) Values.value( n.getAllProperties() ) );
         }
 
         if ( o instanceof Collection )

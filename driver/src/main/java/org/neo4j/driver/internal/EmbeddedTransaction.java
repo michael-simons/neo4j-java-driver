@@ -18,40 +18,82 @@
  */
 package org.neo4j.driver.internal;
 
-import java.util.concurrent.CompletableFuture;
+import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.CompletionStage;
-import java.util.function.Supplier;
+import java.util.concurrent.TimeUnit;
 
-import org.neo4j.driver.internal.util.Futures;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.StatementResultCursor;
 import org.neo4j.driver.v1.Transaction;
-import org.neo4j.driver.v1.exceptions.ClientException;
+import org.neo4j.driver.v1.TransactionConfig;
+import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.QueryExecutionException;
-
-import static org.neo4j.driver.internal.util.Futures.completedWithNull;
-import static org.neo4j.driver.internal.util.Futures.failedFuture;
 
 /**
  * @since 2.0
  */
-public class EmbeddedTransaction extends AbstractTransaction implements Transaction
+public class EmbeddedTransaction extends AbstractStatementRunner implements Transaction
 {
+    private EmbeddedCypherRunner embeddedCypherRunner;
+    private boolean open = true;
+    private boolean markedAsSuccess = false;
+    private final org.neo4j.graphdb.Transaction internalTransaction;
+    private Runnable autoCommitHandler;
 
-    private final EmbeddedCypherRunner cypherRunner;
-    private final ThreadLocal<org.neo4j.graphdb.Transaction> threadBoundTransaction;
-
-    public EmbeddedTransaction( EmbeddedCypherRunner cypherRunner, Supplier<org.neo4j.graphdb.Transaction> transactionSupplier )
+    static Transaction begin( GraphDatabaseService graphDatabaseService, TransactionConfig config, boolean autoCommit )
     {
-        this.cypherRunner = cypherRunner;
-        this.threadBoundTransaction = ThreadLocal.withInitial( transactionSupplier );
+        // Use Neo4j's default timeout https://neo4j.com/docs/operations-manual/current/monitoring/transaction-management/#transaction-management-transaction-timeout
+        long timeoutInMillis = Optional.ofNullable( config.timeout() ).map( Duration::toMillis ).orElse( 0L );
+        return new EmbeddedTransaction( graphDatabaseService, graphDatabaseService.beginTx( timeoutInMillis, TimeUnit.MILLISECONDS ), autoCommit );
+    }
+
+    private EmbeddedTransaction( GraphDatabaseService graphDatabaseService, org.neo4j.graphdb.Transaction internalTransaction, boolean autoCommit )
+    {
+        this.embeddedCypherRunner = EmbeddedCypherRunner.createRunner( graphDatabaseService );
+        this.internalTransaction = internalTransaction;
+        this.autoCommitHandler = autoCommit ? () -> this.close() : () -> {};
+    }
+
+    @Override
+    public void success()
+    {
+        if ( isOpen() )
+        {
+            this.markedAsSuccess = true;
+            this.internalTransaction.success();
+        }
+    }
+
+    @Override
+    public void failure()
+    {
+        if ( isOpen() )
+        {
+            this.internalTransaction.failure();
+        }
+    }
+
+    @Override
+    public boolean isOpen()
+    {
+        return open;
     }
 
     @Override
     public void close()
     {
-        Futures.blockingGet( closeAsync() );
+        if ( isOpen() )
+        {
+            if ( !markedAsSuccess )
+            {
+                this.internalTransaction.failure();
+            }
+            this.open = false;
+            this.internalTransaction.close();
+            this.embeddedCypherRunner = null;
+        }
     }
 
     @Override
@@ -59,62 +101,34 @@ public class EmbeddedTransaction extends AbstractTransaction implements Transact
     {
         try
         {
-            StatementResult result = new EmbeddedStatementResult( statement, cypherRunner.execute( statement.text(), statement.parameters().asMap() ) );
+            StatementResult result = new EmbeddedStatementResult( autoCommitHandler, statement,
+                    embeddedCypherRunner.execute( statement.text(), statement.parameters().asMap() ) );
             this.success();
             return result;
         }
         catch ( QueryExecutionException e )
         {
             this.failure();
+            this.autoCommitHandler.run();
             throw e;
         }
-        finally
-        {
-            this.close();
-        }
+    }
+
+    @Override
+    public CompletionStage<Void> commitAsync()
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public CompletionStage<Void> rollbackAsync()
+    {
+        throw new UnsupportedOperationException();
     }
 
     @Override
     public CompletionStage<StatementResultCursor> runAsync( Statement statement )
     {
-        return null;
-    }
-
-    @Override
-    protected final CompletionStage<Void> doCommitAsync()
-    {
-        if ( state == TransactionState.TERMINATED )
-        {
-            return failedFuture(
-                    new ClientException( "Transaction can't be committed. " + "It has been rolled back either because of an error or explicit termination" ) );
-        }
-
-        return CompletableFuture.runAsync( () ->
-        {
-            org.neo4j.graphdb.Transaction transaction = this.threadBoundTransaction.get();
-            transaction.success();
-            transaction.close();
-        } );
-    }
-
-    @Override
-    protected final CompletionStage<Void> doRollbackAsync()
-    {
-        if ( state == TransactionState.TERMINATED )
-        {
-            return completedWithNull();
-        }
-        return CompletableFuture.runAsync( () ->
-        {
-            org.neo4j.graphdb.Transaction transaction = this.threadBoundTransaction.get();
-            transaction.failure();
-            transaction.close();
-        } );
-    }
-
-    @Override
-    protected final void transactionClosed( TransactionState newState )
-    {
-        state = newState;
+        throw new UnsupportedOperationException();
     }
 }

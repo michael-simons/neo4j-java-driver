@@ -39,6 +39,7 @@ import org.neo4j.graphdb.Result;
 
 public class EmbeddedStatementResult implements StatementResult
 {
+    private final Runnable afterCloseCallback;
     /**
      * The original statement executed that materialized this resultset.
      */
@@ -48,12 +49,14 @@ public class EmbeddedStatementResult implements StatementResult
      */
     private final Result internalResult;
 
+
     private volatile ResultSummary resultSummary;
 
     public AtomicReference<LazyRecordSupplier> nextRecordSupplier = new AtomicReference<>( new LazyRecordSupplier( this::nextImpl ) );
 
-    EmbeddedStatementResult( Statement statement, Result internalResult )
+    public EmbeddedStatementResult( Runnable afterCloseCallback, Statement statement, Result internalResult )
     {
+        this.afterCloseCallback = afterCloseCallback;
         this.statement = statement;
         this.internalResult = internalResult;
     }
@@ -85,11 +88,16 @@ public class EmbeddedStatementResult implements StatementResult
     private Record nextImpl()
     {
         Map<String,Object> next = internalResult.next();
+
+        Record nextRecord = Optional.ofNullable( next ).map( EmbeddedRecord::of ).orElseThrow( () -> new NoSuchRecordException( "No more records" ) );
+
         if ( !internalResult.hasNext() )
         {
             this.internalResult.close();
+            this.afterCloseCallback.run();
         }
-        return Optional.ofNullable( next ).map( EmbeddedRecord::of ).orElseThrow( () -> new NoSuchRecordException( "No more records" ) );
+
+        return nextRecord;
     }
 
     @Override

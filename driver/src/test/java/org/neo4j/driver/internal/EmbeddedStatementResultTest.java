@@ -32,6 +32,7 @@ import org.neo4j.driver.internal.value.NullValue;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
+import org.neo4j.driver.v1.Transaction;
 import org.neo4j.driver.v1.Value;
 import org.neo4j.driver.v1.exceptions.NoSuchRecordException;
 import org.neo4j.driver.v1.util.Pair;
@@ -379,7 +380,7 @@ class EmbeddedStatementResultTest
         when( result.columns() ).thenReturn( columns );
 
         Statement statement = mock( Statement.class );
-        return new EmbeddedStatementResult( statement, result );
+        return new EmbeddedStatementResult(() -> {}, statement, result );
     }
 
     private List<Value> values( Record record )

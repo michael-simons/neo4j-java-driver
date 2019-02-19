@@ -38,16 +38,20 @@ import static org.neo4j.driver.internal.util.Futures.failedFuture;
  */
 final class TransactionUtils
 {
+
+    public static final String ERROR_MESSAGE_TX_OPEN_BEFORE_STATEMENT = "Statements cannot be run directly on a session with an open transaction; " +
+            "either run from within the transaction or use a different session.";
+    public static final String ERROR_MESSAGE_TX_OPEN_BEFORE_NEW_TX = "You cannot begin a transaction on a session with an open transaction; " +
+            "either run from within the transaction or use a different session.";
+
     static CompletionStage<Void> ensureNoOpenTxBeforeRunningQuery( CompletionStage<? extends Transaction> transactionStage )
     {
-        return ensureNoOpenTx( transactionStage, "Statements cannot be run directly on a session with an open transaction; " +
-                "either run from within the transaction or use a different session." );
+        return ensureNoOpenTx( transactionStage, ERROR_MESSAGE_TX_OPEN_BEFORE_STATEMENT );
     }
 
     static CompletionStage<Void> ensureNoOpenTxBeforeStartingTx( CompletionStage<? extends Transaction> transactionStage )
     {
-        return ensureNoOpenTx( transactionStage, "You cannot begin a transaction on a session with an open transaction; " +
-                "either run from within the transaction or use a different session." );
+        return ensureNoOpenTx( transactionStage, ERROR_MESSAGE_TX_OPEN_BEFORE_NEW_TX );
     }
 
     static private CompletionStage<Void> ensureNoOpenTx( CompletionStage<? extends Transaction> transactionStage, String errorMessage )

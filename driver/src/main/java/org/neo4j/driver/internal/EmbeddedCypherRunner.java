@@ -1,18 +1,23 @@
 package org.neo4j.driver.internal;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collector;
-import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.QueryExecutionException;
 import org.neo4j.graphdb.Result;
+import org.neo4j.internal.kernel.api.Transaction;
+import org.neo4j.internal.kernel.api.security.LoginContext;
+import org.neo4j.kernel.impl.factory.GraphDatabaseFacade;
+import org.neo4j.kernel.impl.util.ValueUtils;
+import org.neo4j.values.AnyValue;
 import org.neo4j.values.storable.CoordinateReferenceSystem;
 import org.neo4j.values.storable.Values;
+import org.neo4j.values.virtual.MapValue;
+import org.neo4j.values.virtual.MapValueBuilder;
+import org.neo4j.values.virtual.VirtualValues;
+
+import static java.util.stream.Collectors.toList;
 
 /**
  * Simple facade around the {@link GraphDatabaseService} to prevent leaking the methods all over the {@code EmbeddedXXX}-classes.
@@ -24,57 +29,43 @@ import org.neo4j.values.storable.Values;
 interface EmbeddedCypherRunner
 {
     Result execute( String query, Map<String,Object> parameters ) throws QueryExecutionException;
+
+    static EmbeddedCypherRunner createRunner( GraphDatabaseService graphDatabaseService )
+    {
+        return new DefaultEmbeddedCypherRunner( (GraphDatabaseFacade) graphDatabaseService );
+    }
 }
 
 class DefaultEmbeddedCypherRunner implements EmbeddedCypherRunner
 {
-    private final GraphDatabaseService graphDatabaseService;
 
-    public DefaultEmbeddedCypherRunner( GraphDatabaseService graphDatabaseService )
+    private final GraphDatabaseFacade graphDatabaseFacade;
+
+    public DefaultEmbeddedCypherRunner( GraphDatabaseFacade graphDatabaseFacade )
     {
-        this.graphDatabaseService = graphDatabaseService;
+        this.graphDatabaseFacade = graphDatabaseFacade;
     }
 
-    public Result execute( String query ) throws QueryExecutionException
-    {
-        return graphDatabaseService.execute( query );
-    }
-
-    public Result execute( String query, long timeout, TimeUnit unit ) throws QueryExecutionException
-    {
-        return graphDatabaseService.execute( query, timeout, unit );
-    }
-
+    @Override
     public Result execute( String query, Map<String,Object> parameters ) throws QueryExecutionException
     {
-        return graphDatabaseService.execute( query, convertParameters( parameters ) );
+        return graphDatabaseFacade.execute( graphDatabaseFacade.beginTransaction( Transaction.Type.implicit, LoginContext.AUTH_DISABLED ), query,
+                convertParameters( parameters ) );
     }
 
-    public Result execute( String query, Map<String,Object> parameters, long timeout, TimeUnit unit ) throws QueryExecutionException
-    {
-        return graphDatabaseService.execute( query, convertParameters( parameters ), timeout, unit );
-    }
-
-    private static Map<String,Object> convertParameters( Map<String,Object> originalParameters )
+    private static MapValue convertParameters( Map<String,Object> originalParameters )
     {
 
-        if ( originalParameters == null || originalParameters.isEmpty() )
+        MapValueBuilder builder = new MapValueBuilder( originalParameters.size() );
+        for ( Map.Entry<String,Object> entry : originalParameters.entrySet() )
         {
-            return Collections.emptyMap();
+            builder.add( entry.getKey(), mapToValue( entry.getValue() ) );
         }
 
-        Collector<Map.Entry<String,Object>,HashMap<String,Object>,HashMap<String,Object>> toHashMap = Collector.of( //
-                HashMap::new,  //
-                ( map, e ) -> map.put( e.getKey(), mapToValue( e.getValue() ) ),  //
-                ( map1, map2 ) ->
-                {  //
-                    map1.putAll( map2 );  //
-                    return map1;  //
-                } );
-        return originalParameters.entrySet().stream().collect( Collectors.collectingAndThen( toHashMap, Collections::unmodifiableMap ) );
+        return builder.build();
     }
 
-    private static Object mapToValue( Object o )
+    private static AnyValue mapToValue( Object o )
     {
 
         if ( o instanceof org.neo4j.driver.v1.Value )
@@ -82,9 +73,10 @@ class DefaultEmbeddedCypherRunner implements EmbeddedCypherRunner
             return mapToValue( ((org.neo4j.driver.v1.Value) o).asObject() );
         }
 
-        if ( o instanceof Collection )
+        if ( o instanceof Iterable )
         {
-            return ((Collection) o).stream().map( DefaultEmbeddedCypherRunner::mapToValue ).toArray( Object[]::new );
+            return VirtualValues.fromList(
+                    StreamSupport.stream( (((Iterable<?>) o)).spliterator(), false ).map( DefaultEmbeddedCypherRunner::mapToValue ).collect( toList() ) );
         }
 
         if ( o instanceof InternalPoint2D )
@@ -105,6 +97,6 @@ class DefaultEmbeddedCypherRunner implements EmbeddedCypherRunner
             return Values.durationValue( duration );
         }
 
-        return o;
+        return ValueUtils.asAnyValue( o );
     }
 }

@@ -44,6 +44,7 @@ import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Value;
 import org.neo4j.driver.v1.exceptions.ClientException;
 import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
+import org.neo4j.driver.v1.util.ParallelizableIT;
 import org.neo4j.driver.v1.util.TestUtil;
 
 import static java.util.Arrays.asList;
@@ -64,6 +65,7 @@ import static org.neo4j.driver.v1.Values.ofInteger;
 import static org.neo4j.driver.v1.Values.ofValue;
 import static org.neo4j.driver.v1.Values.parameters;
 
+@ParallelizableIT
 public class EmbeddedParametersIT
 {
     private static final int LONG_VALUE_SIZE = 1_000_000;
@@ -512,5 +514,12 @@ public class EmbeddedParametersIT
         StatementResult result = session.run( "RETURN $value", singletonMap( "value", value ) );
         Object receivedValue = result.single().get( 0 ).asObject();
         assertArrayEquals( new Object[]{value}, new Object[]{receivedValue} );
+    }
+
+    @AfterAll
+    static void closeEmbeddedDriver()
+    {
+        session.close();
+        embeddedDriver.close();
     }
 }
