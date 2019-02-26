@@ -37,6 +37,8 @@ import org.neo4j.graphdb.Node;
 import org.neo4j.values.storable.DurationValue;
 import org.neo4j.values.storable.PointValue;
 
+import static java.util.stream.Collectors.toMap;
+
 /**
  * @since 2.0
  */
@@ -45,7 +47,7 @@ public class EmbeddedRecord extends AbstractRecord implements Record
     public static EmbeddedRecord of( Map<String,Object> internalRecord )
     {
         List<String> keys = new ArrayList<>( internalRecord.keySet() );
-        Value[] values = internalRecord.values().stream().map( EmbeddedRecord::mapToValue ).toArray( Value[]::new );
+        Value[] values = internalRecord.values().stream().map( EmbeddedRecord::asDriverValue ).toArray( Value[]::new );
 
         return new EmbeddedRecord( keys, values );
     }
@@ -56,7 +58,7 @@ public class EmbeddedRecord extends AbstractRecord implements Record
      * @param o
      * @return
      */
-    private static Object mapToValue( Object o )
+    private static Value asDriverValue( Object o )
     {
 
         if ( o == null )
@@ -68,12 +70,16 @@ public class EmbeddedRecord extends AbstractRecord implements Record
         {
             Node n = (Node) o;
             List<String> labels = StreamSupport.stream( n.getLabels().spliterator(), false ).map( Label::name ).collect( Collectors.toList() );
-            return new InternalNode( n.getId(), labels, (Map<String,Value>) Values.value( n.getAllProperties() ) );
+
+            Map<String,Value> properties = n.getAllProperties().entrySet().stream().collect( toMap( e -> e.getKey(), e -> asDriverValue( e.getValue() ) ) );
+
+            return new InternalNode( n.getId(), labels, properties ).asValue();
         }
+
 
         if ( o instanceof Collection )
         {
-            Value[] listValues = ((Collection<?>) o).stream().map( EmbeddedRecord::mapToValue ).toArray( Value[]::new );
+            Value[] listValues = ((Collection<?>) o).stream().map( EmbeddedRecord::asDriverValue ).toArray( Value[]::new );
             return new ListValue( listValues );
         }
 
